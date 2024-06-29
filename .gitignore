@@ -1,0 +1,22 @@
+# Build directories
+build/
+cmake-build-debug/
+# Compiled object files
+*.o
+
+# Compiled static libraries
+*.a
+
+# Compiled dynamic libraries
+*.so
+*.dll
+*.dylib
+
+# Executable files
+*.exe
+*.out
+*.app
+
+# Temporary files
+*.tmp
+*.log
