@@ -1,5 +1,3 @@
-#include <stdlib.h>
-
 #include "chunck.h"
 #include "memory.h"
 
@@ -18,6 +16,7 @@ void writeChunk(Chunk *chunk, uint8_t byte, int line) {
         chunk->code = GROW_ARRAY(uint8_t, chunk->code, oldCapacity, chunk->capacity);
         chunk->lines = GROW_ARRAY(int, chunk->lines, oldCapacity, chunk->capacity);
     }
+    // RLE 방식으로 인코딩 0b로 할지 0x로 할지
     chunk->code[chunk->count] = byte;
     chunk->lines[chunk->count] = line;
     chunk->count++;
