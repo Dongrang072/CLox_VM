@@ -12,6 +12,8 @@ typedef enum {
     OP_DIVIDE,
     OP_NEGATIVE,
     OP_RETURN,
+    OP_TERNARY_TRUE,
+    OP_TERNARY_FALSE,
 }OpCode;
 
 typedef struct { //dynamic Array
