@@ -5,7 +5,9 @@
 #include "common.h"
 
 #ifdef DEBUG_PRINT_CODE
+
 #include "debug.h"
+
 #endif
 
 typedef struct {
@@ -123,7 +125,9 @@ static void endCompiler() {
 }
 
 static void expression();
-static ParseRule* getRule(TokenType type);
+
+static ParseRule *getRule(TokenType type);
+
 static void parsePrecedence(Precedence precedence);
 
 static void binary() {
@@ -132,6 +136,24 @@ static void binary() {
     parsePrecedence((Precedence) (rule->precedence + 1));
 
     switch (operatorType) {
+        case TOKEN_BANG_EQUAL:
+            emitBytes(OP_EQUAL, OP_NOT);
+            break;
+        case TOKEN_EQUAL_EQUAL:
+            emitByte(OP_EQUAL);
+            break;
+        case TOKEN_GREATER:
+            emitByte(OP_GREATER);
+            break;
+        case TOKEN_GREATER_EQUAL:
+            emitBytes(OP_LESS, OP_NOT);
+            break;
+        case TOKEN_LESS:
+            emitByte(OP_LESS);
+            break;
+        case TOKEN_LESS_EQUAL:
+            emitBytes(OP_GREATER, OP_NOT);
+            break;
         case TOKEN_PLUS:
             emitByte(OP_ADD);
             break;
@@ -149,6 +171,22 @@ static void binary() {
     }
 }
 
+static void literal() {
+    switch (parser.previous.type) {
+        case TOKEN_FALSE:
+            emitByte(OP_FALSE);
+            break;
+        case TOKEN_NIL:
+            emitByte(OP_NIL);
+            break;
+        case TOKEN_TRUE:
+            emitByte(OP_TRUE);
+            break;
+        default:
+            return;
+    }
+}
+
 static void grouping() {
     expression();
     consume(TOKEN_RIGHT_PAREN, "Expect ')' after expression");
@@ -156,10 +194,10 @@ static void grouping() {
 
 static void number() {
     double value = strtod(parser.previous.start, NULL);
-    emitConstant(value);
+    emitConstant(NUMBER_VAL(value));
 }
 
-static void ternary(){
+static void ternary() {
     // 현재는 `?` 토큰을 이미 소비한 상태
     // 조건 부분은 이미 파싱되었고 스택에 남아있음
     parsePrecedence(PREC_TERNARY);
@@ -177,6 +215,9 @@ static void unary() {
     parsePrecedence(PREC_UNARY);
     //연산자 명령어
     switch (operatorType) {
+        case TOKEN_BANG:
+            emitByte(OP_NOT);
+            break;
         case TOKEN_MINUS:
             emitByte(OP_NEGATIVE);
             break;
@@ -200,14 +241,14 @@ ParseRule rules[] = {
         [TOKEN_QUESTION] = {NULL, ternary, PREC_TERNARY}, // 삼항 연산자
         [TOKEN_COLON] = {NULL, NULL, PREC_TERNARY}, // 콜론 연산자
 
-        [TOKEN_BANG] ={NULL, NULL, PREC_NONE},
-        [TOKEN_BANG_EQUAL] ={NULL, NULL, PREC_NONE},
+        [TOKEN_BANG] ={unary, NULL, PREC_NONE}, // NOT
+        [TOKEN_BANG_EQUAL] ={NULL, binary, PREC_EQUALITY},
         [TOKEN_EQUAL] ={NULL, NULL, PREC_NONE},
-        [TOKEN_EQUAL_EQUAL] ={NULL, NULL, PREC_NONE},
-        [TOKEN_GREATER] ={NULL, NULL, PREC_NONE},
-        [TOKEN_GREATER_EQUAL] ={NULL, NULL, PREC_NONE},
-        [TOKEN_LESS] ={NULL, NULL, PREC_NONE},
-        [TOKEN_LESS_EQUAL] ={NULL, NULL, PREC_NONE},
+        [TOKEN_EQUAL_EQUAL] ={NULL, binary, PREC_EQUALITY},
+        [TOKEN_GREATER] ={NULL, binary, PREC_COMPARISON},
+        [TOKEN_GREATER_EQUAL] ={NULL, binary, PREC_COMPARISON},
+        [TOKEN_LESS] ={NULL, binary, PREC_COMPARISON},
+        [TOKEN_LESS_EQUAL] ={NULL, binary, PREC_COMPARISON},
 
         [TOKEN_IDENTIFIER] ={NULL, NULL, PREC_NONE},
         [TOKEN_STRING] ={NULL, NULL, PREC_NONE},
@@ -216,20 +257,19 @@ ParseRule rules[] = {
         [TOKEN_AND] ={NULL, NULL, PREC_NONE},
         [TOKEN_CLASS] ={NULL, NULL, PREC_NONE},
         [TOKEN_ELSE] ={NULL, NULL, PREC_NONE},
-        [TOKEN_FALSE] ={NULL, NULL, PREC_NONE},
+        [TOKEN_FALSE] ={literal, NULL, PREC_NONE},
         [TOKEN_FOR] ={NULL, NULL, PREC_NONE},
         [TOKEN_FUN] ={NULL, NULL, PREC_NONE},
         [TOKEN_IF] ={NULL, NULL, PREC_NONE},
-        [TOKEN_NIL] ={NULL, NULL, PREC_NONE},
+        [TOKEN_NIL] ={literal, NULL, PREC_NONE},
         [TOKEN_OR] ={NULL, NULL, PREC_NONE},
         [TOKEN_PRINT] ={NULL, NULL, PREC_NONE},
         [TOKEN_RETURN] ={NULL, NULL, PREC_NONE},
         [TOKEN_SUPER] ={NULL, NULL, PREC_NONE},
         [TOKEN_THIS] ={NULL, NULL, PREC_NONE},
-        [TOKEN_TRUE] ={NULL, NULL, PREC_NONE},
+        [TOKEN_TRUE] ={literal, NULL, PREC_NONE},
         [TOKEN_VAR] ={NULL, NULL, PREC_NONE},
-        [TOKEN_WHILE] ={NULL, NULL,
-                                                                                                     PREC_NONE},
+        [TOKEN_WHILE] ={NULL, NULL,PREC_NONE},
         [TOKEN_ERROR] ={NULL, NULL, PREC_NONE},
         [TOKEN_EOF] ={NULL, NULL, PREC_NONE},
 };
@@ -237,7 +277,7 @@ ParseRule rules[] = {
 static void parsePrecedence(Precedence precedence) { //Pratt Parser
     advance();
     ParseFn preFixRule = getRule(parser.previous.type)->prefix;
-    if(preFixRule == NULL){ //전위 파서가 없다면 구문 에러가 난 것으로 처리
+    if (preFixRule == NULL) { //전위 파서가 없다면 구문 에러가 난 것으로 처리
         error("Expect expression.");
         return;
     }
@@ -253,7 +293,7 @@ static void parsePrecedence(Precedence precedence) { //Pratt Parser
     }
 }
 
-static ParseRule* getRule(TokenType type){
+static ParseRule *getRule(TokenType type) {
     return &rules[type];
 }
 
