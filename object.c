@@ -4,7 +4,6 @@
 #include "memory.h"
 #include "object.h"
 #include "value.h"
-#include "value.h"
 #include "vm.h"
 
 #define ALLOCATE_OBJ(type, objectType) \
