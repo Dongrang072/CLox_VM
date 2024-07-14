@@ -1,4 +1,4 @@
-#include "chunck.h"
+#include "chunk.h"
 #include "memory.h"
 
 void initChunk(Chunk *chunk) {
@@ -6,8 +6,9 @@ void initChunk(Chunk *chunk) {
     chunk->capacity = 0;
     chunk->code = NULL;
     chunk->lines = NULL;
+    chunk->lineCount = 0;
+    chunk->lineCapacity = 0;
     initValueArray(&chunk->constants);
-//    initChunk(chunk);
 }
 
 void writeChunk(Chunk *chunk, uint8_t byte, int line) {
@@ -15,12 +16,24 @@ void writeChunk(Chunk *chunk, uint8_t byte, int line) {
         int oldCapacity = chunk->capacity;
         chunk->capacity = GROW_CAPACITY(oldCapacity);
         chunk->code = GROW_ARRAY(uint8_t, chunk->code, oldCapacity, chunk->capacity);
-        chunk->lines = GROW_ARRAY(int, chunk->lines, oldCapacity, chunk->capacity);
     }
-    // RLE 방식으로 인코딩 0b로 할지 0x로 할지
+
     chunk->code[chunk->count] = byte;
-    chunk->lines[chunk->count] = line;
     chunk->count++;
+
+    if (chunk->lineCapacity < chunk->lineCount + 1) {
+        int oldCapacity = chunk->lineCapacity;
+        chunk->lineCapacity = GROW_CAPACITY(oldCapacity);
+        chunk->lines = GROW_ARRAY(LineStart, chunk->lines, oldCapacity, chunk->lineCapacity);
+    }
+
+    if (chunk->lineCount > 0 && chunk->lines[chunk->lineCount - 1].line == line) {
+        chunk->lines[chunk->lineCount - 1].count++;
+    } else {
+        LineStart newLine = {line, chunk->count - 1, 1};
+        chunk->lines[chunk->lineCount] = newLine;
+        chunk->lineCount++;
+    }
 }
 
 int addConstant(Chunk *chunk, Value value) {
@@ -28,9 +41,46 @@ int addConstant(Chunk *chunk, Value value) {
     return chunk->constants.count - 1;
 }
 
+void writeConstant(Chunk *chunk, Value value, int line) {
+    //chunk의 상수 배열에 value를 추가한 다음 상수를 로드하는 적절한 명령어> OP_CONSTANT_LONG
+    //max size < 255[256bytes] 0 -255 value Array
+    int index = addConstant(chunk, value);
+
+    if (index < 256) {
+        writeChunk(chunk, OP_CONSTANT, line);
+        writeChunk(chunk, index, line);
+    } else {
+        writeChunk(chunk, OP_CONSTANT_LONG, line);
+
+        writeChunk(chunk, (index >> 16) & 0xFF, line);
+        writeChunk(chunk, (index >> 8) & 0xFF, line);
+        writeChunk(chunk, index & 0xFF, line);
+    }
+
+}
+
 void freeChunk(Chunk *chunk) {
     FREE_ARRAY(uint8_t, chunk->code, chunk->capacity);
     FREE_ARRAY(int, chunk->lines, chunk->capacity);
     freeValueArray(&chunk->constants);
     initChunk(chunk);
+}
+
+int getLine(Chunk *chunk, int instructionIndex) {
+    int start = 0;
+    int end = chunk->lineCount - 1;
+
+    while (start <= end) {
+        int mid = (start + end) / 2;
+        LineStart *line = &chunk->lines[mid];
+
+        if (instructionIndex < line->start) {
+            end = mid - 1;
+        } else if (instructionIndex >= line->start + line->count) {
+            start = mid + 1;
+        } else {
+            return line->line;
+        }
+    }
+    return -1;
 }

@@ -60,7 +60,7 @@ static void errorAt(Token *token, const char *message) {
         fprintf(stderr, " at '%.*s'", token->length, token->start);
     }
     fprintf(stderr, ": %s\n", message);
-    parser.hadError;
+    parser.hadError = true;
 }
 
 static void error(const char *message) {
@@ -197,6 +197,10 @@ static void number() {
     emitConstant(NUMBER_VAL(value));
 }
 
+static void string(){
+    emitConstant(OBJ_VAL(copyString(parser.previous.start +1, parser.previous.length-2))); // 전후 " 제거
+}
+
 static void ternary() {
     // 현재는 `?` 토큰을 이미 소비한 상태
     // 조건 부분은 이미 파싱되었고 스택에 남아있음
@@ -251,7 +255,7 @@ ParseRule rules[] = {
         [TOKEN_LESS_EQUAL] ={NULL, binary, PREC_COMPARISON},
 
         [TOKEN_IDENTIFIER] ={NULL, NULL, PREC_NONE},
-        [TOKEN_STRING] ={NULL, NULL, PREC_NONE},
+        [TOKEN_STRING] ={string, NULL, PREC_NONE},
         [TOKEN_NUMBER] = {number, NULL, PREC_NONE},
 
         [TOKEN_AND] ={NULL, NULL, PREC_NONE},
