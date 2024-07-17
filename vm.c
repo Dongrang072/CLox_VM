@@ -64,7 +64,7 @@ static void concatenate(){
     memcpy(chars, a->chars, a->length);
     memcpy(chars + a->length, b->chars, b->length);
     chars[length] = '\0';
-
+    //나중에 복사한 문자열 사본을 메모리에서 해제해야 함
     ObjString* result = takeString(chars, length);
     push(OBJ_VAL(result));
 }
@@ -125,9 +125,9 @@ static InterpretResult run() {
                 BINARY_OP(BOOL_VAL, <);
                 break;
             case OP_ADD: {
-                if(IS_STRING(peek(0)) && IS_STRING(peek(1))) {
+                if (IS_STRING(peek(0)) && IS_STRING(peek(1))) {
                     concatenate();
-                } else if(IS_NUMBER(peek(0)) && IS_NUMBER(peek(1))) {
+                } else if (IS_NUMBER(peek(0)) && IS_NUMBER(peek(1))) {
                     double b = AS_NUMBER(pop());
                     double a = AS_NUMBER(pop());
                     push(NUMBER_VAL(a + b));

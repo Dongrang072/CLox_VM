@@ -12,16 +12,16 @@ static bool isAtEnd() {
     return *scanner.current == '\0';
 }
 
-char advance() {
+static char advance() {
     scanner.current++;
     return scanner.current[-1];
 }
 
-char peek() {
+static char peek() {
     return *scanner.current;
 }
 
-char peekNext() {
+static char peekNext() {
     if (isAtEnd()) return '\0';
     return scanner.current[1];
 }
@@ -95,11 +95,14 @@ static TokenType identifierType() {
         case 'e':
             return checkKeyword(1, 3, "lse", TOKEN_ELSE);
         case 'f':
-            if(scanner.current - scanner.start >1) {
+            if (scanner.current - scanner.start > 1) {
                 switch (scanner.start[1]) {
-                    case 'a': return checkKeyword(2,3,"lse", TOKEN_FALSE);
-                    case 'o': return checkKeyword(2, 1 ,"r", TOKEN_FOR);
-                    case 'u' : return checkKeyword(2, 1 , "n", TOKEN_FUN);
+                    case 'a':
+                        return checkKeyword(2, 3, "lse", TOKEN_FALSE);
+                    case 'o':
+                        return checkKeyword(2, 1, "r", TOKEN_FOR);
+                    case 'u' :
+                        return checkKeyword(2, 1, "n", TOKEN_FUN);
                 }
             }
             break;
@@ -112,14 +115,16 @@ static TokenType identifierType() {
         case 'p':
             return checkKeyword(1, 4, "rint", TOKEN_PRINT);
         case 'r':
-            return checkKeyword(1, 5, "erturn", TOKEN_RETURN);
+            return checkKeyword(1, 5, "eturn", TOKEN_RETURN);
         case 's':
             return checkKeyword(1, 4, "uper", TOKEN_SUPER);
         case 't':
-            if(scanner.current - scanner.start >1) {
+            if (scanner.current - scanner.start > 1) {
                 switch (scanner.start[1]) {
-                    case 'h': return checkKeyword(2,3,"is", TOKEN_THIS);
-                    case 'r': return checkKeyword(2, 1 ,"ue", TOKEN_TRUE);
+                    case 'h':
+                        return checkKeyword(2, 2, "is", TOKEN_THIS);
+                    case 'r':
+                        return checkKeyword(2, 2, "ue", TOKEN_TRUE);
                 }
             }
             break;
@@ -178,7 +183,7 @@ static bool isDigit(char c) {
 
 Token scanToken() {
     skipWhiteSpace();
-    scanner.start == scanner.current;
+    scanner.start == scanner.current; //스캔하려는 렉심이 어디에서 시작되었는지를 기억하기 위해 현재 문자를 가르키도록 세팅
     if (isAtEnd()) return makeToken(TOKEN_EOF);
 
     char c = advance();

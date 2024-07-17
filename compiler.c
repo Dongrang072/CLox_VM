@@ -18,7 +18,7 @@ typedef struct {
 typedef enum { //우선순위에 따라 크고 작음을 다룸
     PREC_NONE,
     PREC_ASSIGNMENT, // =
-    PREC_TERNARY, // ? ternary()
+//    PREC_TERNARY, // ? ternary()
     PREC_OR,         //or
     PREC_AND,        // and
     PREC_EQUALITY,   // == !=
@@ -196,21 +196,20 @@ static void number() {
 }
 
 static void string(){
-    emitConstant(OBJ_VAL(copyString(parser.previous.start + 1,
-                                    parser.previous.length -2)));
+    emitConstant(OBJ_VAL(copyString(parser.previous.start +1, parser.previous.length-2))); // 전후 " 제거
 }
 
-static void ternary() {
-    // 현재는 `?` 토큰을 이미 소비한 상태
-    // 조건 부분은 이미 파싱되었고 스택에 남아있음
-    parsePrecedence(PREC_TERNARY);
-    consume(TOKEN_COLON, "Expect ':' after then branch of conditional expression.");
-
-    parsePrecedence(PREC_ASSIGNMENT);
-
-    emitByte(OP_TERNARY_TRUE);
-    emitByte(OP_TERNARY_FALSE);
-}
+//static void ternary() {
+//    // 현재는 `?` 토큰을 이미 소비한 상태
+//    // 조건 부분은 이미 파싱되었고 스택에 남아있음
+//    parsePrecedence(PREC_TERNARY);
+//    consume(TOKEN_COLON, "Expect ':' after then branch of conditional expression.");
+//
+//    parsePrecedence(PREC_ASSIGNMENT);
+//
+//    emitByte(OP_TERNARY_TRUE);
+//    emitByte(OP_TERNARY_FALSE);
+//}
 
 static void unary() {
     TokenType operatorType = parser.previous.type;
@@ -241,8 +240,8 @@ ParseRule rules[] = {
         [TOKEN_SEMICOLON] ={NULL, NULL, PREC_NONE},
         [TOKEN_SLASH] ={NULL, binary, PREC_FACTOR},
         [TOKEN_STAR] = {NULL, binary, PREC_FACTOR},
-        [TOKEN_QUESTION] = {NULL, ternary, PREC_TERNARY}, // 삼항 연산자
-        [TOKEN_COLON] = {NULL, NULL, PREC_TERNARY}, // 콜론 연산자
+//        [TOKEN_QUESTION] = {NULL, ternary, PREC_TERNARY}, // 삼항 연산자
+//        [TOKEN_COLON] = {NULL, NULL, PREC_TERNARY}, // 콜론 연산자
 
         [TOKEN_BANG] ={unary, NULL, PREC_NONE}, // NOT
         [TOKEN_BANG_EQUAL] ={NULL, binary, PREC_EQUALITY},

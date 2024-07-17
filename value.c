@@ -46,7 +46,7 @@ void printValue(Value value) {
 }
 
 bool valuesEqual(Value a, Value b) {
-    if (a.type != b.type) { //Value 타입이 다르면 동등하지 않다.
+    if (a.type != b.type)  return false;//Value 타입이 다르면 동등하지 않다.
         switch (a.type) { //패딩과 크기가 가변적인 공용체 필드 때문에 사용하지 않는 비트도 포함될 수 있음.
             case VAL_BOOL:
                 return AS_BOOL(a) == AS_BOOL(b);
@@ -54,14 +54,15 @@ bool valuesEqual(Value a, Value b) {
                 return true;
             case VAL_NUMBER:
                 return AS_NUMBER(a) == AS_NUMBER(b);
-            case VAL_OBJ: {
-                ObjString *aString = AS_STRING(a);
-                ObjString *bString = AS_STRING(b);
+            case VAL_OBJ:{ // 서로 다른 객체든 같은 객체든 간에 모두 같은 값의 문자열일 경우 동등한 값으로 처리
+                ObjString* aString = AS_STRING(a);
+                ObjString* bString = AS_STRING(b);
                 return aString->length == bString->length &&
-                       memcpy(aString->chars, bString->chars, aString->length) == 0;
+                        memcpy(aString->chars, bString->chars,
+                               aString->length) == 0;
             }
             default:
                 return false;
         }
-    }
+
 }
