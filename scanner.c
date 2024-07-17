@@ -118,8 +118,8 @@ static TokenType identifierType() {
         case 't':
             if(scanner.current - scanner.start >1) {
                 switch (scanner.start[1]) {
-                    case 'h': return checkKeyword(2,3,"lse", TOKEN_THIS);
-                    case 'r': return checkKeyword(2, 1 ,"r", TOKEN_TRUE);
+                    case 'h': return checkKeyword(2,3,"is", TOKEN_THIS);
+                    case 'r': return checkKeyword(2, 1 ,"ue", TOKEN_TRUE);
                 }
             }
             break;
@@ -177,8 +177,8 @@ static bool isDigit(char c) {
 }
 
 Token scanToken() {
+    skipWhiteSpace();
     scanner.start == scanner.current;
-
     if (isAtEnd()) return makeToken(TOKEN_EOF);
 
     char c = advance();

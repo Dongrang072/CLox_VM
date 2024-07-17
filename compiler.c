@@ -5,9 +5,7 @@
 #include "common.h"
 
 #ifdef DEBUG_PRINT_CODE
-
 #include "debug.h"
-
 #endif
 
 typedef struct {
@@ -60,7 +58,7 @@ static void errorAt(Token *token, const char *message) {
         fprintf(stderr, " at '%.*s'", token->length, token->start);
     }
     fprintf(stderr, ": %s\n", message);
-    parser.hadError;
+    parser.hadError = true;
 }
 
 static void error(const char *message) {
@@ -183,7 +181,7 @@ static void literal() {
             emitByte(OP_TRUE);
             break;
         default:
-            return;
+            return; //실행되지 않은 코드
     }
 }
 
@@ -195,6 +193,11 @@ static void grouping() {
 static void number() {
     double value = strtod(parser.previous.start, NULL);
     emitConstant(NUMBER_VAL(value));
+}
+
+static void string(){
+    emitConstant(OBJ_VAL(copyString(parser.previous.start + 1,
+                                    parser.previous.length -2)));
 }
 
 static void ternary() {
@@ -222,7 +225,7 @@ static void unary() {
             emitByte(OP_NEGATIVE);
             break;
         default:
-            return;
+            return; //실행되지 않은 코드
     }
 }
 
@@ -251,7 +254,7 @@ ParseRule rules[] = {
         [TOKEN_LESS_EQUAL] ={NULL, binary, PREC_COMPARISON},
 
         [TOKEN_IDENTIFIER] ={NULL, NULL, PREC_NONE},
-        [TOKEN_STRING] ={NULL, NULL, PREC_NONE},
+        [TOKEN_STRING] ={string, NULL, PREC_NONE},
         [TOKEN_NUMBER] = {number, NULL, PREC_NONE},
 
         [TOKEN_AND] ={NULL, NULL, PREC_NONE},
@@ -304,7 +307,7 @@ static void expression() { // table driven parser
 
 bool compile(const char *source, Chunk *chunk) {
     initScanner(source);
-    compilingChunk = chunk; //
+    compilingChunk = chunk; // 바이트 코드를 쓰기 전에 새로운 모듈 변수 초기화
 
     parser.hadError = false;
     parser.panicMode = false;
