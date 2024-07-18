@@ -1,3 +1,4 @@
+#include <stdlib.h>
 #include "scanner.h"
 
 typedef struct {
@@ -39,6 +40,7 @@ static Token makeToken(TokenType type) { //start와 current 포인터로 토큰�
     token.start = scanner.start;
     token.length = (int) (scanner.current - scanner.start);
     token.line = scanner.line;
+
     return token;
 }
 
@@ -183,7 +185,7 @@ static bool isDigit(char c) {
 
 Token scanToken() {
     skipWhiteSpace();
-    scanner.start == scanner.current; //스캔하려는 렉심이 어디에서 시작되었는지를 기억하기 위해 현재 문자를 가르키도록 세팅
+    scanner.start = scanner.current; //스캔하려는 렉심이 어디에서 시작되었는지를 기억하기 위해 현재 문자를 가르키도록 세팅
     if (isAtEnd()) return makeToken(TOKEN_EOF);
 
     char c = advance();

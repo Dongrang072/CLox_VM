@@ -192,7 +192,6 @@ static void grouping() {
 
 static void number() {
     double value = strtod(parser.previous.start, NULL);
-    printf("compiling number: %g\n", value); // 디버깅
     emitConstant(NUMBER_VAL(value));
 }
 

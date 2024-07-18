@@ -27,7 +27,6 @@ void writeChunk(Chunk *chunk, uint8_t byte, int line) {
 
 int addConstant(Chunk *chunk, Value value) {
     writeValueArray(&chunk->constants, value);
-    printf("Added constant: %g at index %d\n", value.as.number, chunk->constants.count - 1);  // 디버깅
     return chunk->constants.count - 1;
 }
 
