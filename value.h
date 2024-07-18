@@ -32,7 +32,6 @@ typedef struct { //sizeof(type) +padding 4 bytes + sizeof(double) = 16 bytes
 #define AS_OBJ(value) ((value).as.obj)
 #define AS_BOOL(value) ((value).as.boolean)
 #define AS_NUMBER(value) ((value).as.number)
-#define AS_OBJ(value) ((value).as.obj)
 
 //promote macro -----> wrapping Value
 #define BOOL_VAL(value) ((Value){VAL_BOOL, {.boolean = value}})

@@ -54,13 +54,8 @@ bool valuesEqual(Value a, Value b) {
                 return true;
             case VAL_NUMBER:
                 return AS_NUMBER(a) == AS_NUMBER(b);
-            case VAL_OBJ:{ // 서로 다른 객체든 같은 객체든 간에 모두 같은 값의 문자열일 경우 동등한 값으로 처리
-                ObjString* aString = AS_STRING(a);
-                ObjString* bString = AS_STRING(b);
-                return aString->length == bString->length &&
-                        memcpy(aString->chars, bString->chars,
-                               aString->length) == 0;
-            }
+            case VAL_OBJ:// 서로 다른 객체든 같은 객체든 간에 모두 같은 값의 문자열일 경우 동등한 값으로 처리
+                return AS_OBJ(a) == AS_OBJ(b); //문자열 인터닝으로 문자를 하나씩 비교할 필요가 없어짐
             default:
                 return false;
         }

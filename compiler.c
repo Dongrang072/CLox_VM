@@ -18,7 +18,7 @@ typedef struct {
 typedef enum { //우선순위에 따라 크고 작음을 다룸
     PREC_NONE,
     PREC_ASSIGNMENT, // =
-//    PREC_TERNARY, // ? ternary()
+    PREC_TERNARY, // ? ternary()
     PREC_OR,         //or
     PREC_AND,        // and
     PREC_EQUALITY,   // == !=
@@ -192,6 +192,7 @@ static void grouping() {
 
 static void number() {
     double value = strtod(parser.previous.start, NULL);
+    printf("compiling number: %g\n", value); // 디버깅
     emitConstant(NUMBER_VAL(value));
 }
 
