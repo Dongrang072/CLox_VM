@@ -69,6 +69,17 @@ static void skipWhiteSpace() {
                 if (peekNext() == '/') {
                     //주석은 줄 끝까지 이어진다
                     while (peek() != '\n' && !isAtEnd()) advance();
+                } else if(peekNext() =='*'){
+                    advance(); // '/'
+                    advance(); // '*'
+                    while (!isAtEnd() && !(peek() == '*' && peekNext() == '/')){
+                        if (peek() == '\n') scanner.line++;
+                        advance();
+                    }
+                    if(!isAtEnd()){
+                        advance(); // '*'
+                        advance(); // '/'
+                    }
                 } else {
                     return;
                 }
