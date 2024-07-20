@@ -20,3 +20,6 @@ cmake-build-debug/
 # Temporary files
 *.tmp
 *.log
+
+#test data
+*.txt

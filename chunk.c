@@ -30,23 +30,23 @@ int addConstant(Chunk *chunk, Value value) {
     return chunk->constants.count - 1;
 }
 
-//void writeConstant(Chunk *chunk, Value value, int line) {
-//    //chunk의 상수 배열에 value를 추가한 다음 상수를 로드하는 적절한 명령어> OP_CONSTANT_LONG
-//    //max size < 255[256bytes] 0 -255 value Array
-//    int index = addConstant(chunk, value);
-//
-//    if (index < 256) {
-//        writeChunk(chunk, OP_CONSTANT, line);
-//        writeChunk(chunk, index, line);
-//    } else {
-//        writeChunk(chunk, OP_CONSTANT_LONG, line);
-//
-//        writeChunk(chunk, (index >> 16) & 0xFF, line);
-//        writeChunk(chunk, (index >> 8) & 0xFF, line);
-//        writeChunk(chunk, index & 0xFF, line);
-//    }
-//
-//}
+void writeConstant(Chunk *chunk, Value value, int line) {
+    //chunk의 상수 배열에 value를 추가한 다음 상수를 로드하는 적절한 명령어> OP_CONSTANT_LONG
+    //max size < 255[256bytes] 0 -255 value Array
+    int index = addConstant(chunk, value);
+
+    if (index < 256) {
+        writeChunk(chunk, OP_CONSTANT, line);
+        writeChunk(chunk, index, line);
+    } else {
+        writeChunk(chunk, OP_CONSTANT_LONG, line);
+
+        writeChunk(chunk, (index >> 16) & 0xFF, line);
+        writeChunk(chunk, (index >> 8) & 0xFF, line);
+        writeChunk(chunk, index & 0xFF, line);
+    }
+
+}
 
 void freeChunk(Chunk *chunk) {
     FREE_ARRAY(uint8_t, chunk->code, chunk->capacity);
@@ -72,3 +72,4 @@ void freeChunk(Chunk *chunk) {
 //        }
 //    }
 //    return -1;
+//}

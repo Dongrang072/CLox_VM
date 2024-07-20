@@ -1,7 +1,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
-#include "chunk.h"
+
 #include "vm.h"
 
 static void repl() {
@@ -25,6 +25,7 @@ static char *readFile(const char *path) {
     }
     fseek(file, 0L, SEEK_END); //fseek()으로 파일 끝을 찾음
     size_t fileSize = ftell(file);//ftell()을 호출해서 파일 시작부에서 몇 바이트나 떨어져있는지 알아냄
+    printf("File size: %zu bytes.\n", fileSize);  // 파일 크기 확인 로그
     rewind(file);
 
     char *buffer = (char *) malloc(fileSize + 1); // + null byte
@@ -32,17 +33,18 @@ static char *readFile(const char *path) {
         fprintf(stderr, "Not enough memory to read \"%s\".\n", path);
         exit(74);
     }
-    size_t byteRead = fread(buffer, sizeof(char), fileSize, file);
-    if (byteRead < fileSize) { // read fail
+    size_t bytesRead = fread(buffer, sizeof(char), fileSize, file);
+    if (bytesRead < fileSize) { // read fail
         fprintf(stderr, "Could not read file \"%s\".\n", path);
     }
-    buffer[byteRead] = '\0';
+    buffer[bytesRead] = '\0';
+    printf("Read %zu bytes from file.\n", bytesRead);  // 읽은 바이트 수 확인 로그
 
     fclose(file);
     return buffer;
 }
 
-void runFile(const char *path) {
+static void runFile(const char *path) {
     char *source = readFile(path);
     InterpretResult result = interpret(source);
     free(source);
@@ -51,20 +53,13 @@ void runFile(const char *path) {
     if (result == INTERPRET_RUNTIME_ERROR) exit(70);
 }
 
-void printChunkCode(Chunk *chunk) {
-    printf("\n[chunk code]: ");
-    for (int i = 0; i < chunk->count; chunk) {
-        printf("%02X ", chunk->code[i]);
-    }
-    printf("\n");
-}
-
 int main(int argc, const char *argv[]) {
     initVM();
 
     if (argc == 1) {
         repl();
     } else if (argc == 2) {
+        printf("Attempting to open file: %s\n", argv[1]);
         runFile(argv[1]);
     } else {
         fprintf(stderr, "Usage: clox [path]\n");

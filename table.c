@@ -32,7 +32,7 @@ static Entry *findEntry(Entry *entries, int capacity, ObjString *key) {
                 return tombstone != NULL ? tombstone : entry;
             } else {
                 //툼스톤을 찾은 경우
-                if(tombstone==NULL) tombstone = entries;
+                if(tombstone==NULL) tombstone = entry;
             }
         } else if (entry->key == key){
             return entry;
@@ -58,12 +58,10 @@ static void adjustCapacity(Table *table, int capacity) { // 버킷 배열 할당
         entries[i].key = NULL;
         entries[i].value = NIL_VAL;
     }
-    table->entries = entries;
-    table->capacity = capacity;
 
+    table->count = 0;
     //이미 배열이 있는 상태에서 reallocate 동적할당을 하는 대신에(해시 키를 배열 크기로 나눈 나머지를 계산하므로)
     //처음부터 배열을 다시 만들어서 엔트리를 다시 새로운 빈 배열에 삽입
-    table->count = 0;
     for (int i = 0; i < table->capacity; i++) {
         Entry *entry = &table->entries[i];
         if (entry->key == NULL) continue;
@@ -76,6 +74,7 @@ static void adjustCapacity(Table *table, int capacity) { // 버킷 배열 할당
 
     FREE_ARRAY(Entry, table->entries, table->capacity);
     table->entries = entries;
+    table->capacity = capacity;
 }
 
 bool tableSet(Table *table, ObjString *key, Value value) {

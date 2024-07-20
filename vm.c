@@ -8,6 +8,7 @@
 #include "compiler.h"
 #include "object.h"
 #include "memory.h"
+
 VM vm;
 
 static void resetStack() {
@@ -31,10 +32,12 @@ static void runtimeError(const char *format, ...) {
 void initVM() {
     resetStack();
     vm.objects = NULL;
+    initTable(&vm.globals); //hash table
     initTable(&vm.strings); //string interning
 }
 
 void freeVM() {
+    freeTable(&vm.globals);
     freeTable(&vm.strings);
     freeObjects();
 }
@@ -57,23 +60,24 @@ static bool isFalsey(Value value) {
     return IS_NIL(value) || (IS_BOOL(value) && !AS_BOOL(value));
 }
 
-static void concatenate(){
-    ObjString* b = AS_STRING(pop());
-    ObjString* a = AS_STRING(pop());
+static void concatenate() {
+    ObjString *b = AS_STRING(pop());
+    ObjString *a = AS_STRING(pop());
 
     int length = a->length + b->length;
-    char* chars = ALLOCATE(char, length+1); // + '\0'
+    char *chars = ALLOCATE(char, length + 1); // + '\0'
     memcpy(chars, a->chars, a->length);
     memcpy(chars + a->length, b->chars, b->length);
     chars[length] = '\0';
     //나중에 복사한 문자열 사본을 메모리에서 해제해야 함
-    ObjString* result = takeString(chars, length);
+    ObjString *result = takeString(chars, length);
     push(OBJ_VAL(result));
 }
 
 static InterpretResult run() {
 #define READ_BYTE() (*vm.ip++) //bytecode dispatch
 #define READ_CONSTANT() (vm.chunk->constants.values[READ_BYTE()])
+#define READ_STRING() AS_STRING(READ_CONSTANT())
 #define BINARY_OP(valueType, op) \
     do{\
         if(!IS_NUMBER(peek(0)) || !IS_NUMBER(peek(1))) { \
@@ -113,6 +117,35 @@ static InterpretResult run() {
             case OP_FALSE:
                 push(BOOL_VAL(false));
                 break;
+            case OP_POP:
+                pop();
+                break;
+            case OP_GET_GLOBAL: {
+                ObjString* name = READ_STRING();
+                Value value;
+                if(!tableGet(&vm.globals, name, &value)) {
+                    runtimeError("Undefined variable '%s'.", name->chars);
+                    return INTERPRET_RUNTIME_ERROR;
+                }
+                push(value);
+                break;
+            }
+            case OP_DEFINE_GLOBAL: { //테이블에 키가 이미 있는지 확인은 하지 않는다.
+                //키가 이미 해시 테이블에 있는 경우 그냥 값을 덮어씌운다
+                ObjString *name = READ_STRING();
+                tableSet(&vm.globals, name, peek(0)); //해시 테이블에 값을 추가할 때까지 값을 pop()하지 않는다
+                pop();
+                break;
+            }
+            case OP_SET_GLOBAL: { //변수를 set 해도 스택에서 값을 pop()하지 않는다. 할당은 표현식이다
+                ObjString* name =READ_STRING();
+                if(tableSet(&vm.globals, name, peek(0))) {
+                    tableDelete(&vm.globals, name);
+                    runtimeError("Undefined variable '%s'.", name->chars);
+                    return INTERPRET_RUNTIME_ERROR;
+                }
+                break;
+            }
             case OP_EQUAL: {
                 Value b = pop();
                 Value a = pop();
@@ -157,15 +190,18 @@ static InterpretResult run() {
                 }
                 push(NUMBER_VAL(-AS_NUMBER(pop())));
                 break;
-            case OP_RETURN: {
+            case OP_PRINT:
                 printValue(pop());
                 printf("\n");
+                break;
+            case OP_RETURN: {
                 return INTERPRET_OK;
             }
         }
     }
 #undef READ_BYTE
 #undef READ_CONSTANT
+#undef READ_STRING
 #undef BINARY_OP
 }
 

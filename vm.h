@@ -12,6 +12,7 @@ typedef struct {
     uint8_t *ip; //(instruction pointer): 항상 현재 처리중인 명령어가 아니라 다음에 실행할 명령어를 가르킨다
     Value stack[STACK_MAX];
     Value *stackTop;
+    Table globals;
     Table strings;
     Obj *objects;
 } VM;

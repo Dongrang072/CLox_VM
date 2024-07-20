@@ -5,7 +5,9 @@
 #include "common.h"
 
 #ifdef DEBUG_PRINT_CODE
+
 #include "debug.h"
+
 #endif
 
 typedef struct {
@@ -18,7 +20,7 @@ typedef struct {
 typedef enum { //우선순위에 따라 크고 작음을 다룸
     PREC_NONE,
     PREC_ASSIGNMENT, // =
-    PREC_TERNARY, // ? ternary()
+    PREC_TERNARY, // a ? b : c ternary()
     PREC_OR,         //or
     PREC_AND,        // and
     PREC_EQUALITY,   // == !=
@@ -30,7 +32,7 @@ typedef enum { //우선순위에 따라 크고 작음을 다룸
     PREC_PRIMARY
 } Precedence;
 
-typedef void(*ParseFn)();
+typedef void(*ParseFn)(bool canAssgin);
 
 typedef struct {
     ParseFn prefix;
@@ -87,6 +89,16 @@ static void consume(TokenType type, const char *message) {
     errorAtCurrent(message);
 }
 
+static bool check(TokenType type) {
+    return parser.current.type == type;
+}
+
+static bool match(TokenType type) {
+    if (!check(type)) return false;
+    advance();
+    return true;
+}
+
 static void emitByte(uint8_t byte) { //chunk에 1바이트 추가
     writeChunk(currentChunk(), byte, parser.previous.line);
 }
@@ -124,11 +136,28 @@ static void endCompiler() {
 
 static void expression();
 
+static void statement();
+
+static void declaration();
+
 static ParseRule *getRule(TokenType type);
 
 static void parsePrecedence(Precedence precedence);
 
-static void binary() {
+static uint8_t identifierConstant(Token *name) {
+    return makeConstant(OBJ_VAL(copyString(name->start, name->length)));
+}
+
+static uint8_t parseVariable(const char *errorMessage) {
+    consume(TOKEN_IDENTIFIER, errorMessage);
+    return identifierConstant(&parser.previous);
+}
+
+static void defineVariable(uint8_t global) {
+    emitBytes(OP_DEFINE_GLOBAL, global);
+}
+
+static void binary(bool canAssgin) {
     TokenType operatorType = parser.previous.type;
     ParseRule *rule = getRule(operatorType);
     parsePrecedence((Precedence) (rule->precedence + 1));
@@ -169,7 +198,7 @@ static void binary() {
     }
 }
 
-static void literal() {
+static void literal(bool canAssgin) {
     switch (parser.previous.type) {
         case TOKEN_FALSE:
             emitByte(OP_FALSE);
@@ -185,18 +214,32 @@ static void literal() {
     }
 }
 
-static void grouping() {
+static void grouping(bool canAssgin) {
     expression();
     consume(TOKEN_RIGHT_PAREN, "Expect ')' after expression");
 }
 
-static void number() {
+static void number(bool canAssgin) {
     double value = strtod(parser.previous.start, NULL);
     emitConstant(NUMBER_VAL(value));
 }
 
-static void string(){
-    emitConstant(OBJ_VAL(copyString(parser.previous.start +1, parser.previous.length-2))); // 전후 " 제거
+static void string(bool canAssgin) {
+    emitConstant(OBJ_VAL(copyString(parser.previous.start + 1, parser.previous.length - 2))); // 전후 " 제거
+}
+
+static void namedVariable(Token name, bool canAssign) {
+    uint8_t arg = identifierConstant(&name);
+    if (canAssign && match(TOKEN_EQUAL)) {
+        expression();
+        emitBytes(OP_SET_GLOBAL, arg);
+    } else {
+        emitBytes(OP_GET_GLOBAL, arg);
+    }
+}
+
+static void variable(bool canAssign) {
+    namedVariable(parser.previous, canAssign);
 }
 
 //static void ternary() {
@@ -211,7 +254,7 @@ static void string(){
 //    emitByte(OP_TERNARY_FALSE);
 //}
 
-static void unary() {
+static void unary(bool canAssgin) {
     TokenType operatorType = parser.previous.type;
     //expression()을 재귀 호출 해서 피연산자 컴파일
     parsePrecedence(PREC_UNARY);
@@ -252,7 +295,7 @@ ParseRule rules[] = {
         [TOKEN_LESS] ={NULL, binary, PREC_COMPARISON},
         [TOKEN_LESS_EQUAL] ={NULL, binary, PREC_COMPARISON},
 
-        [TOKEN_IDENTIFIER] ={NULL, NULL, PREC_NONE},
+        [TOKEN_IDENTIFIER] ={variable, NULL, PREC_NONE},
         [TOKEN_STRING] ={string, NULL, PREC_NONE},
         [TOKEN_NUMBER] = {number, NULL, PREC_NONE},
 
@@ -271,7 +314,7 @@ ParseRule rules[] = {
         [TOKEN_THIS] ={NULL, NULL, PREC_NONE},
         [TOKEN_TRUE] ={literal, NULL, PREC_NONE},
         [TOKEN_VAR] ={NULL, NULL, PREC_NONE},
-        [TOKEN_WHILE] ={NULL, NULL,PREC_NONE},
+        [TOKEN_WHILE] ={NULL, NULL, PREC_NONE},
         [TOKEN_ERROR] ={NULL, NULL, PREC_NONE},
         [TOKEN_EOF] ={NULL, NULL, PREC_NONE},
 };
@@ -283,16 +326,19 @@ static void parsePrecedence(Precedence precedence) { //Pratt Parser
         error("Expect expression.");
         return;
     }
-    preFixRule(); //전위식의 나머지를 컴파일하고 필요로 하는 다른 토큰을 모두 소비한 다음 다시 재귀 호출
+    bool canAssgin = precedence <= PREC_ASSIGNMENT; //할당은 우선순위가 가장 낮은 표현식임을 명심하기
+    preFixRule(canAssgin); //전위식의 나머지를 컴파일하고 필요로 하는 다른 토큰을 모두 소비한 다음 다시 재귀 호출
 
     //precedence가 중위 연산자를 허용할 만큼 우선순위가 낮은 경우에만 가능하다
     while (precedence <= getRule(parser.current.type)->precedence) {
         //다음 토큰의 우선순위가 너무 낮거나 중위 연산자가 아니면 작업을 끝낸다
         advance();
         ParseFn infixRule = getRule(parser.previous.type)->infix;
-        infixRule();
+        infixRule(canAssgin);
 
     }
+    if(canAssgin && match(TOKEN_EQUAL))
+        error("Invalid assignment target.");
 }
 
 static ParseRule *getRule(TokenType type) {
@@ -303,6 +349,70 @@ static void expression() { // table driven parser
     parsePrecedence(PREC_ASSIGNMENT);
 }
 
+static void varDeclaration() {
+    uint8_t global = parseVariable("Expect variable name.");
+
+    if (match(TOKEN_EQUAL)) {
+        expression();
+    } else {
+        emitByte(OP_NIL);
+    }
+    consume(TOKEN_SEMICOLON, "Expect ':' after variable declaration.");
+
+    defineVariable(global);
+}
+
+static void expressionStatement() {
+    expression();
+    consume(TOKEN_SEMICOLON, "Expect ';' after expression.");
+    emitByte(OP_POP); //시맨틱상 표현문은 표현식을 평가는 하지만 그 결과는 버린다
+}
+
+static void printStatement() {
+    expression(); //print문은 표현식을 평가하고 그 결과를 출력함
+    consume(TOKEN_SEMICOLON, "Expect ';' after value.");
+    emitByte(OP_PRINT);
+}
+
+static void synchronize() {
+    parser.panicMode = false;
+
+    while (parser.current.type != TOKEN_EOF) {
+        if (parser.previous.type == TOKEN_SEMICOLON)
+            return;
+        switch (parser.current.type) { //문장 경계는 세미콜론이나 뒤에 문장으로 시작하는 토큰이 있는지 여부로 알 수 있음
+            case TOKEN_CLASS:
+            case TOKEN_FUN:
+            case TOKEN_VAR:
+            case TOKEN_FOR:
+            case TOKEN_IF:
+            case TOKEN_WHILE:
+            case TOKEN_PRINT:
+            case TOKEN_RETURN:
+                return;
+            default:
+                //none
+        }
+        advance();
+    }
+}
+
+static void declaration() {
+    if (match(TOKEN_VAR)) {
+        varDeclaration();
+    } else {
+        statement();
+    }
+    if (parser.panicMode) synchronize(); //panicModeError 복구 후 컴파일 에러 갯수를 최소화 하기
+}
+
+static void statement() {
+    if (match(TOKEN_PRINT)) {
+        printStatement();
+    } else { //print 키워드가 안 보이면 표현문이다
+        expressionStatement();
+    }
+}
 
 bool compile(const char *source, Chunk *chunk) {
     initScanner(source);
@@ -312,8 +422,9 @@ bool compile(const char *source, Chunk *chunk) {
     parser.panicMode = false;
 
     advance();
-    expression();
-    consume(TOKEN_EOF, "Expect end of expression.");
+    while (!match(TOKEN_EOF)) { //eof를 못 찾아서 무한루프
+        declaration();
+    }
     endCompiler();
 
     return !parser.hadError;
