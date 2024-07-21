@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include "compiler.h"
 #include "scanner.h"
 #include "common.h"
@@ -40,7 +41,19 @@ typedef struct {
     Precedence precedence;
 } ParseRule;
 
+typedef struct {
+    Token name; //변수 이름
+    int depth;
+} Local;
+
+typedef struct {
+    Local locals[UINT8_COUNT];
+    int localCount; //스코프에 있는 지역 변수의 개수(사용중인 배열 슬롯의 개수) 추적
+    int scopeDepth; //'컴파일중인' 현재 코드의 비트를 둘러싼 블록의 개수
+} Compiler;
+
 Parser parser;
+Compiler *current = NULL; //원칙적으로라면 Compiler 포인터를 받는 매개변수를 프론트엔드에 있는 각 매게 변수에 전달하겠지만....
 Chunk *compilingChunk;
 
 static Chunk *currentChunk() {
@@ -125,6 +138,12 @@ static void emitConstant(Value value) { //상수 테이블에 엔트리 추가
     emitBytes(OP_CONSTANT, makeConstant(value));
 }
 
+static void initCompiler(Compiler *compiler) {
+    compiler->localCount = 0;
+    compiler->scopeDepth = 0;
+    current = compiler;
+}
+
 static void endCompiler() {
     emitReturn();
 #ifdef DEBUG_PRINT_CODE
@@ -132,6 +151,20 @@ static void endCompiler() {
         disassembleChunk(currentChunk(), "code");
     }
 #endif
+}
+
+static void beginScope() {
+    current->scopeDepth++;
+}
+
+static void endScope() {
+    current->scopeDepth--;
+
+    while (current->localCount > 0 &&
+           current->locals[current->localCount - 1].depth > current->scopeDepth) {
+        emitByte(OP_POP); //지역변수가 스코프를 벗어나면 해당 슬롯은 더 이상 필요가 없다
+        current->localCount--;
+    }
 }
 
 static void expression();
@@ -148,12 +181,72 @@ static uint8_t identifierConstant(Token *name) {
     return makeConstant(OBJ_VAL(copyString(name->start, name->length)));
 }
 
+static bool identifiersEqual(Token *a, Token *b) {
+    if (a->length != b->length) return false;
+    return memcmp(a->start, b->start, a->length) == 0;
+}
+
+static int resolveLocal(Compiler* compiler, Token* name){
+    for(int i= compiler->localCount-1; i>=0; i--){
+        Local* local = &(compiler->locals[i]);
+        if(identifiersEqual(name, &local->name)){
+            if(local->depth == -1){ //스코프의 깊이가 -1이면 변수 초기자 안에서 해당 변수를 참조한 것
+                error("Can't read local variable in its own initializer.");
+            }
+            return i;
+        }
+    }
+    return -1; //전역변수임을 나타냄
+}
+
+
+static void addLocal(Token name) {
+    if (current->localCount == UINT8_COUNT) { //VM은 스코프에 최대 256개의 지역 변수까지만 지원함
+        error("Too many local variables in function.");
+        return;
+    }
+    //인덱스는 1바이트 크기의 피연산자에 저장됨
+    Local *local = &current->locals[current->localCount++];
+    local->name = name;
+    local->depth = -1; //초기화되지 않은 상태 표시, 나중에 변수의 초기자 컴파일이 끝나면 markInitialized()로 초기화가 된 것으로 표시, 선언만 된 상태
+}
+
+static void declareVariable() {
+    if (current->scopeDepth == 0) return;
+
+    Token *name = &parser.previous;
+
+    for (int i = current->localCount - 1; i >= 0; i--) {
+        Local *local = &current->locals[i];
+        if (local->depth != -1 && local->depth < current->scopeDepth) {
+            break;
+        }
+        if (identifiersEqual(name, &local->name)) {
+            error("Already a variable with this name in this scope.");
+        }
+    }
+    addLocal(*name);
+}
+
 static uint8_t parseVariable(const char *errorMessage) {
     consume(TOKEN_IDENTIFIER, errorMessage);
+
+    declareVariable();
+    if (current->scopeDepth > 0) return 0;
+
     return identifierConstant(&parser.previous);
 }
 
+static void markInitialized(){
+    current->locals[current->localCount -1].depth = current->scopeDepth;
+}
+
 static void defineVariable(uint8_t global) {
+    //아직 선언만 된 상태
+    if (current->scopeDepth > 0) {
+        markInitialized(); //초기화됨을 확인
+        return;
+    }
     emitBytes(OP_DEFINE_GLOBAL, global);
 }
 
@@ -229,12 +322,21 @@ static void string(bool canAssgin) {
 }
 
 static void namedVariable(Token name, bool canAssign) {
-    uint8_t arg = identifierConstant(&name);
+    uint8_t getOp, setOp;
+    int arg = resolveLocal(current, &name);
+    if (arg != -1) {
+        getOp = OP_GET_LOCAL;
+        setOp = OP_SET_LOCAL;
+    } else {
+        arg = identifierConstant(&name);
+        getOp = OP_GET_GLOBAL;
+        setOp = OP_SET_GLOBAL;
+    }
     if (canAssign && match(TOKEN_EQUAL)) {
         expression();
-        emitBytes(OP_SET_GLOBAL, arg);
+        emitBytes(setOp, (uint8_t) arg);
     } else {
-        emitBytes(OP_GET_GLOBAL, arg);
+        emitBytes(getOp, (uint8_t) arg);
     }
 }
 
@@ -337,7 +439,7 @@ static void parsePrecedence(Precedence precedence) { //Pratt Parser
         infixRule(canAssgin);
 
     }
-    if(canAssgin && match(TOKEN_EQUAL))
+    if (canAssgin && match(TOKEN_EQUAL))
         error("Invalid assignment target.");
 }
 
@@ -349,7 +451,15 @@ static void expression() { // table driven parser
     parsePrecedence(PREC_ASSIGNMENT);
 }
 
+static void block() {
+    while (!check(TOKEN_RIGHT_PAREN) && !check(TOKEN_EOF)) { //사용자가 }를 까먹을 수도 있으므로 eof 체크
+        declaration();
+    }
+    consume(TOKEN_RIGHT_BRACE, "Expect '}' after block.");
+}
+
 static void varDeclaration() {
+    //변수 이름에 대한 식별자 토큰 소비, 렉심을 청크의 상수 테이블에 문자열로 추가, 해당 상수 테이블의 인덱스를 return
     uint8_t global = parseVariable("Expect variable name.");
 
     if (match(TOKEN_EQUAL)) {
@@ -409,6 +519,10 @@ static void declaration() {
 static void statement() {
     if (match(TOKEN_PRINT)) {
         printStatement();
+    } else if (match(TOKEN_LEFT_PAREN)) {
+        beginScope();
+        block();
+        endScope();
     } else { //print 키워드가 안 보이면 표현문이다
         expressionStatement();
     }
@@ -416,6 +530,8 @@ static void statement() {
 
 bool compile(const char *source, Chunk *chunk) {
     initScanner(source);
+    Compiler compiler;
+    initCompiler(&compiler);
     compilingChunk = chunk; // 바이트 코드를 쓰기 전에 새로운 모듈 변수 초기화
 
     parser.hadError = false;

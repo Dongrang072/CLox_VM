@@ -120,6 +120,16 @@ static InterpretResult run() {
             case OP_POP:
                 pop();
                 break;
+            case OP_GET_LOCAL:{
+                uint8_t slot = READ_BYTE();
+                push(vm.stack[slot]);
+                break;
+            }
+            case OP_SET_LOCAL: {
+                uint8_t slot = READ_BYTE();
+                vm.stack[slot] = peek(0); //할당은 표현식이고 모든 표현식은 값을 만들어낸다. 할당식의 값은 할당된 값 그 자체이므로 pop()은 하지 않는다
+                break;
+            }
             case OP_GET_GLOBAL: {
                 ObjString* name = READ_STRING();
                 Value value;

@@ -5,7 +5,7 @@
 #include "value.h"
 
 typedef struct {
-    ObjString *key; //key는 항상 문자열일기 때문에 Value로 따로 래핑은 안함
+    ObjString *key; //key는 항상 문자열이기 때문에 Value로 따로 래핑은 안함
     Value value;
 } Entry;
 
