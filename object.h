@@ -13,25 +13,27 @@
 
 typedef enum {
     OBJ_STRING,
-}ObjType;
+} ObjType;
 
-struct Obj{
+struct Obj {
     ObjType type;
-    struct Obj* pNext;
+    struct Obj *pNext;
 };
 
 struct ObjString { //첫 번째 필드를 Obj로 만들어서 모든 Obj가 공유하는 상태를 만듦
     Obj obj;
     int length;
-    char* chars;
+    char *chars;
     uint32_t hash; // cash 고려 각 ObjString마다 자기 문자열의 해시 코드를 저장 하고 즉시 캐시함 O(n)
 };
 
-ObjString* takeString(char* chars, int length);
-ObjString* copyString(const char* chars, int length);
-void  printObject(Value value);
+ObjString *takeString(char *chars, int length);
 
-static inline bool isObjType(Value value, ObjType type){
+ObjString *copyString(const char *chars, int length);
+
+void printObject(Value value);
+
+static inline bool isObjType(Value value, ObjType type) {
     return IS_OBJ(value) && AS_OBJ(value)->type == type;
 }
 

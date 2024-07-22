@@ -452,7 +452,7 @@ static void expression() { // table driven parser
 }
 
 static void block() {
-    while (!check(TOKEN_RIGHT_PAREN) && !check(TOKEN_EOF)) { //사용자가 }를 까먹을 수도 있으므로 eof 체크
+    while (!check(TOKEN_RIGHT_BRACE) && !check(TOKEN_EOF)) { //사용자가 }를 까먹을 수도 있으므로 eof 체크
         declaration();
     }
     consume(TOKEN_RIGHT_BRACE, "Expect '}' after block.");
@@ -519,7 +519,7 @@ static void declaration() {
 static void statement() {
     if (match(TOKEN_PRINT)) {
         printStatement();
-    } else if (match(TOKEN_LEFT_PAREN)) {
+    } else if (match(TOKEN_LEFT_BRACE)) {
         beginScope();
         block();
         endScope();
