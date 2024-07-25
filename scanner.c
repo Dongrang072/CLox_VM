@@ -69,14 +69,14 @@ static void skipWhiteSpace() {
                 if (peekNext() == '/') {
                     //주석은 줄 끝까지 이어진다
                     while (peek() != '\n' && !isAtEnd()) advance();
-                } else if(peekNext() =='*'){
+                } else if (peekNext() == '*') {
                     advance(); // '/'
                     advance(); // '*'
-                    while (!isAtEnd() && !(peek() == '*' && peekNext() == '/')){
+                    while (!isAtEnd() && !(peek() == '*' && peekNext() == '/')) {
                         if (peek() == '\n') scanner.line++;
                         advance();
                     }
-                    if(!isAtEnd()){
+                    if (!isAtEnd()) {
                         advance(); // '*'
                         advance(); // '/'
                     }
@@ -103,7 +103,15 @@ static TokenType identifierType() {
         case 'a':
             return checkKeyword(1, 2, "nd", TOKEN_AND);
         case 'c':
-            return checkKeyword(1, 4, "lass", TOKEN_CLASS);
+            if (scanner.current - scanner.start > 1) {
+                switch (scanner.start[1]) {
+                    case 'l':
+                        return checkKeyword(2, 3, "ass", TOKEN_CLASS);
+                    case 'o':
+                        return checkKeyword(2, 3, "nst", TOKEN_CONST);
+                }
+            }
+            break;
         case 'e':
             return checkKeyword(1, 3, "lse", TOKEN_ELSE);
         case 'f':
@@ -120,6 +128,8 @@ static TokenType identifierType() {
             break;
         case 'i':
             return checkKeyword(1, 1, "f", TOKEN_IF);
+        case 'l':
+            return checkKeyword(1, 2, "et", TOKEN_LET);
         case 'n':
             return checkKeyword(1, 2, "il", TOKEN_NIL);
         case 'o':
@@ -140,8 +150,6 @@ static TokenType identifierType() {
                 }
             }
             break;
-        case 'v':
-            return checkKeyword(1, 2, "ar", TOKEN_VAR);
         case 'w':
             return checkKeyword(1, 4, "hile", TOKEN_WHILE);
 

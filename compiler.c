@@ -44,6 +44,7 @@ typedef struct {
 typedef struct {
     Token name; //변수 이름
     int depth;
+    bool isConst; //const  추가
 } Local;
 
 typedef struct {
@@ -186,11 +187,11 @@ static bool identifiersEqual(Token *a, Token *b) {
     return memcmp(a->start, b->start, a->length) == 0;
 }
 
-static int resolveLocal(Compiler* compiler, Token* name){
-    for(int i= compiler->localCount-1; i>=0; i--){
-        Local* local = &(compiler->locals[i]);
-        if(identifiersEqual(name, &local->name)){
-            if(local->depth == -1){ //스코프의 깊이가 -1이면 변수 초기자 안에서 해당 변수를 참조한 것
+static int resolveLocal(Compiler *compiler, Token *name) {
+    for (int i = compiler->localCount - 1; i >= 0; i--) {
+        Local *local = &(compiler->locals[i]);
+        if (identifiersEqual(name, &local->name)) {
+            if (local->depth == -1) { //스코프의 깊이가 -1이면 변수 초기자 안에서 해당 변수를 참조한 것
                 error("Can't read local variable in its own initializer.");
             }
             return i;
@@ -200,7 +201,7 @@ static int resolveLocal(Compiler* compiler, Token* name){
 }
 
 
-static void addLocal(Token name) {
+static void addLocal(Token name, bool isConst) {
     if (current->localCount == UINT8_COUNT) { //VM은 스코프에 최대 256개의 지역 변수까지만 지원함
         error("Too many local variables in function.");
         return;
@@ -209,9 +210,10 @@ static void addLocal(Token name) {
     Local *local = &current->locals[current->localCount++];
     local->name = name;
     local->depth = -1; //초기화되지 않은 상태 표시, 나중에 변수의 초기자 컴파일이 끝나면 markInitialized()로 초기화가 된 것으로 표시, 선언만 된 상태
+    local->isConst = isConst;
 }
 
-static void declareVariable() {
+static void declareVariable(bool isConst) {
     if (current->scopeDepth == 0) return;
 
     Token *name = &parser.previous;
@@ -225,20 +227,20 @@ static void declareVariable() {
             error("Already a variable with this name in this scope.");
         }
     }
-    addLocal(*name);
+    addLocal(*name, isConst);
 }
 
-static uint8_t parseVariable(const char *errorMessage) {
+static uint8_t parseVariable(const char *errorMessage, bool isConst) {
     consume(TOKEN_IDENTIFIER, errorMessage);
 
-    declareVariable();
+    declareVariable(isConst);
     if (current->scopeDepth > 0) return 0;
 
     return identifierConstant(&parser.previous);
 }
 
-static void markInitialized(){
-    current->locals[current->localCount -1].depth = current->scopeDepth;
+static void markInitialized() {
+    current->locals[current->localCount - 1].depth = current->scopeDepth;
 }
 
 static void defineVariable(uint8_t global) {
@@ -325,10 +327,18 @@ static void namedVariable(Token name, bool canAssign) {
     uint8_t getOp, setOp;
     int arg = resolveLocal(current, &name);
     if (arg != -1) {
+        if (current->locals[arg].isConst && canAssign && match(TOKEN_EQUAL)) {
+            error("Can not assign to const variable.");
+        }
         getOp = OP_GET_LOCAL;
         setOp = OP_SET_LOCAL;
     } else {
         arg = identifierConstant(&name);
+        if(canAssign && match(TOKEN_EQUAL)){ //전역 변수의 재할당 검증
+            expression();
+            emitBytes(OP_SET_GLOBAL, (uint8_t) arg);
+            return;
+        }
         getOp = OP_GET_GLOBAL;
         setOp = OP_SET_GLOBAL;
     }
@@ -415,7 +425,8 @@ ParseRule rules[] = {
         [TOKEN_SUPER] ={NULL, NULL, PREC_NONE},
         [TOKEN_THIS] ={NULL, NULL, PREC_NONE},
         [TOKEN_TRUE] ={literal, NULL, PREC_NONE},
-        [TOKEN_VAR] ={NULL, NULL, PREC_NONE},
+        [TOKEN_CONST] = {NULL, NULL, PREC_NONE},
+        [TOKEN_LET] ={NULL, NULL, PREC_NONE},
         [TOKEN_WHILE] ={NULL, NULL, PREC_NONE},
         [TOKEN_ERROR] ={NULL, NULL, PREC_NONE},
         [TOKEN_EOF] ={NULL, NULL, PREC_NONE},
@@ -455,12 +466,12 @@ static void block() {
     while (!check(TOKEN_RIGHT_BRACE) && !check(TOKEN_EOF)) { //사용자가 }를 까먹을 수도 있으므로 eof 체크
         declaration();
     }
-    consume(TOKEN_RIGHT_BRACE, "Expect '}' after block.");
+     consume(TOKEN_RIGHT_BRACE, "Expect '}' after block.");
 }
 
-static void varDeclaration() {
+static void varDeclaration(bool isConst) {
     //변수 이름에 대한 식별자 토큰 소비, 렉심을 청크의 상수 테이블에 문자열로 추가, 해당 상수 테이블의 인덱스를 return
-    uint8_t global = parseVariable("Expect variable name.");
+    uint8_t global = parseVariable("Expect variable name.", isConst);
 
     if (match(TOKEN_EQUAL)) {
         expression();
@@ -493,7 +504,7 @@ static void synchronize() {
         switch (parser.current.type) { //문장 경계는 세미콜론이나 뒤에 문장으로 시작하는 토큰이 있는지 여부로 알 수 있음
             case TOKEN_CLASS:
             case TOKEN_FUN:
-            case TOKEN_VAR:
+            case TOKEN_LET:
             case TOKEN_FOR:
             case TOKEN_IF:
             case TOKEN_WHILE:
@@ -508,8 +519,10 @@ static void synchronize() {
 }
 
 static void declaration() {
-    if (match(TOKEN_VAR)) {
-        varDeclaration();
+    if(match(TOKEN_CONST)){
+        varDeclaration(true);
+    }else if (match(TOKEN_LET)) {
+        varDeclaration(false);
     } else {
         statement();
     }

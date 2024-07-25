@@ -22,6 +22,7 @@ static Obj *allocateObject(size_t size, ObjType type) { //주어진 크기(객�
 
 static ObjString *allocateString(char *chars, int length, uint32_t hash) { //OOP의 생성자와 유사한 기능을 한다
     ObjString *string = ALLOCATE_OBJ(ObjString, OBJ_STRING);
+    //ObjString *string = (ObjString*)allocateObject(sizeof(ObjString*), OBJ_STRING);
     string->length = length;
     string->chars = chars;
     string->hash = hash;

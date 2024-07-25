@@ -24,7 +24,7 @@ static Entry *findEntry(Entry *entries, int capacity, ObjString *key) {
     Entry* tombstone = NULL;
     for (;;) { //버킷에 엔트리가 있지만 키가 달라서 해시 충돌이 일어날 경우 -> probing
         Entry *entry = &entries[index];
-            //엔트리 자체가 없고 엔트리를 삽입하는 용도로 함수를사용할 경우에는 새 엔트리를 추가할 위치를 찾았다는 뜻
+            //엔트리 자체가 없고 엔트리를 삽입하는 용도로 함수를 사용할 경우에는 새 엔트리를 추가할 위치를 찾았다는 뜻
             // 삽입을 하는 경우에는 새 엔트리를 추가하는 대신 찾은 키의 값을 바꿀 것이다.
         if(entries->key == NULL){
             if(IS_NIL(entries->value)){

@@ -8,7 +8,7 @@ void *reallocate(void *pointer, size_t oldSize, size_t newSize) {
         return NULL;
     }
 
-    void *result = realloc(pointer, newSize);
+    void *result = realloc(pointer, newSize); //항상 ptr의 값이 이전 주소와 같다고 볼 수는 없다
     if (result == NULL) exit(1);
     return result;
 }
