@@ -243,13 +243,14 @@ static void markInitialized() {
     current->locals[current->localCount - 1].depth = current->scopeDepth;
 }
 
-static void defineVariable(uint8_t global) {
+static void defineVariable(uint8_t global, bool isConst) {
     //아직 선언만 된 상태
     if (current->scopeDepth > 0) {
         markInitialized(); //초기화됨을 확인
         return;
     }
     emitBytes(OP_DEFINE_GLOBAL, global);
+    emitByte(isConst ? OP_TRUE : OP_FALSE); //isConst flag를 byte로 추가
 }
 
 static void binary(bool canAssgin) {
@@ -333,11 +334,31 @@ static void namedVariable(Token name, bool canAssign) {
         getOp = OP_GET_LOCAL;
         setOp = OP_SET_LOCAL;
     } else {
+//        ObjString *key = copyString(name.start, name.length);
+//        Value value;
+//        if (!tableGet(&vm.globals, key, &value)) {
+//            arg = identifierConstant(&name);
+//            getOp = OP_GET_GLOBAL;
+//            setOp = OP_SET_GLOBAL;
+//        } else {
+//            Entry *entry = findEntry(vm.globals.entries, vm.globals.capacity, key);
+//            if (entry->isConst && canAssign && match(TOKEN_EQUAL)) {
+//                error("Can not assign to const variable.");
+//                return;
+//            }
+//            arg = identifierConstant(&name);
+//            getOp = OP_GET_GLOBAL;
+//            setOp = OP_SET_GLOBAL;
+//        }
         arg = identifierConstant(&name);
-        if(canAssign && match(TOKEN_EQUAL)){ //전역 변수의 재할당 검증
-            expression();
-            emitBytes(OP_SET_GLOBAL, (uint8_t) arg);
-            return;
+        ObjString* key = copyString(name.start, name.length);
+        Value value;
+        if (tableGet(&vm.globals, key, &value)) {
+            if (AS_BOOL(value)) {
+                if (canAssign && match(TOKEN_EQUAL)) {
+                    error("Cannot assign to const variable.");
+                }
+            }
         }
         getOp = OP_GET_GLOBAL;
         setOp = OP_SET_GLOBAL;
@@ -466,7 +487,7 @@ static void block() {
     while (!check(TOKEN_RIGHT_BRACE) && !check(TOKEN_EOF)) { //사용자가 }를 까먹을 수도 있으므로 eof 체크
         declaration();
     }
-     consume(TOKEN_RIGHT_BRACE, "Expect '}' after block.");
+    consume(TOKEN_RIGHT_BRACE, "Expect '}' after block.");
 }
 
 static void varDeclaration(bool isConst) {
@@ -480,7 +501,7 @@ static void varDeclaration(bool isConst) {
     }
     consume(TOKEN_SEMICOLON, "Expect ':' after variable declaration.");
 
-    defineVariable(global);
+    defineVariable(global, isConst);
 }
 
 static void expressionStatement() {
@@ -519,9 +540,9 @@ static void synchronize() {
 }
 
 static void declaration() {
-    if(match(TOKEN_CONST)){
+    if (match(TOKEN_CONST)) {
         varDeclaration(true);
-    }else if (match(TOKEN_LET)) {
+    } else if (match(TOKEN_LET)) {
         varDeclaration(false);
     } else {
         statement();

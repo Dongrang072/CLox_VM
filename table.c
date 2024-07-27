@@ -19,7 +19,7 @@ void freeTable(Table *table) {
     initTable(table);
 }
 
-static Entry *findEntry(Entry *entries, int capacity, ObjString *key) {
+Entry *findEntry(Entry *entries, int capacity, ObjString *key) {
     uint32_t index = key->hash % capacity; // %연산자로 키의 해시 코드를 배열 경계 내부의 인덱스에 매핑
     Entry* tombstone = NULL;
     for (;;) { //버킷에 엔트리가 있지만 키가 달라서 해시 충돌이 일어날 경우 -> probing
@@ -77,7 +77,7 @@ static void adjustCapacity(Table *table, int capacity) { // 버킷 배열 할당
     table->capacity = capacity;
 }
 
-bool tableSet(Table *table, ObjString *key, Value value) {
+bool tableSet(Table *table, ObjString *key, Value value, bool isConst) {
     if (table->count + 1 > table->capacity * TABLE_MAX_LOAD) { //Entry 배열 할당 전에 배열이 존재하는지 확인, 혹은 크기가 충분한지 확인하기
         int capacity = GROW_CAPACITY(table->capacity);
         adjustCapacity(table, capacity);
@@ -87,8 +87,14 @@ bool tableSet(Table *table, ObjString *key, Value value) {
     bool isNewKey = entry->key == NULL;
     if (isNewKey && IS_NIL(entry->value)) table->count++; //완전히 빈 버킷에 새 엔트리가 들어갈 때만 count++(count == 앤트리 수 + 툼스톤 수)
 
+
+    if(!isNewKey && entry->isConst){ //const 변수는 재할당 할 수 없도록 예외 처리
+        return false;
+    }
+
     entry->key = key;
     entry->value = value;
+    entry->isConst = isConst;
     return isNewKey;
 }
 
@@ -109,7 +115,7 @@ void tableAddAll(Table *from, Table *to){
     for(int i =0; i < from->capacity; i++){
         Entry* entry =&from->entries[i];
         if(entry->key !=NULL ){
-            tableSet(to, entry->key, entry->value);
+            tableSet(to, entry->key, entry->value, entry->isConst);
         }
     }
 }

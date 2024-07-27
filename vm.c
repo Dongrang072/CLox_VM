@@ -78,6 +78,7 @@ static InterpretResult run() {
 #define READ_BYTE() (*vm.ip++) //bytecode dispatch
 #define READ_CONSTANT() (vm.chunk->constants.values[READ_BYTE()])
 #define READ_STRING() AS_STRING(READ_CONSTANT())
+#define READ_IS_CONST() (READ_BYTE() == OP_TRUE) // OP_TRUE or OP_FALSE
 #define BINARY_OP(valueType, op) \
     do{\
         if(!IS_NUMBER(peek(0)) || !IS_NUMBER(peek(1))) { \
@@ -143,13 +144,19 @@ static InterpretResult run() {
             case OP_DEFINE_GLOBAL: { //테이블에 키가 이미 있는지 확인은 하지 않는다.
                 //키가 이미 해시 테이블에 있는 경우 그냥 값을 덮어씌운다
                 ObjString *name = READ_STRING();
-                tableSet(&vm.globals, name, peek(0)); //해시 테이블에 값을 추가할 때까지 값을 pop()하지 않는다
+                bool isConst = READ_IS_CONST();
+                tableSet(&vm.globals, name, peek(0), isConst); //해시 테이블에 값을 추가할 때까지 값을 pop()하지 않는다
                 pop();
                 break;
             }
             case OP_SET_GLOBAL: { //변수를 set 해도 스택에서 값을 pop()하지 않는다. 할당은 표현식이다
                 ObjString* name =READ_STRING();
-                if(tableSet(&vm.globals, name, peek(0))) {
+                Entry *entry = findEntry(vm.globals.entries, vm.globals.capacity, name);
+                if(entry->isConst) {
+                    runtimeError("Can not assign to const variable '%s'.", name->chars);
+                    return INTERPRET_RUNTIME_ERROR;
+                }
+                if(tableSet(&vm.globals, name, peek(0), entry->isConst)) {
                     tableDelete(&vm.globals, name);
                     runtimeError("Undefined variable '%s'.", name->chars);
                     return INTERPRET_RUNTIME_ERROR;
