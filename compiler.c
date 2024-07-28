@@ -243,13 +243,19 @@ static void markInitialized() {
     current->locals[current->localCount - 1].depth = current->scopeDepth;
 }
 
-static void defineVariable(uint8_t global) {
+static void defineVariable(uint8_t global, bool isConst) {
     //아직 선언만 된 상태
     if (current->scopeDepth > 0) {
         markInitialized(); //초기화됨을 확인
         return;
     }
-    emitBytes(OP_DEFINE_GLOBAL, global);
+
+    if (isConst) {
+        emitBytes(OP_DEFINE_CONST_GLOBAL, global);
+    } else {
+        emitBytes(OP_DEFINE_LET_GLOBAL, global);
+    }
+
 }
 
 static void binary(bool canAssgin) {
@@ -334,7 +340,7 @@ static void namedVariable(Token name, bool canAssign) {
         setOp = OP_SET_LOCAL;
     } else {
         arg = identifierConstant(&name);
-        if(canAssign && match(TOKEN_EQUAL)){ //전역 변수의 재할당 검증
+        if (canAssign && match(TOKEN_EQUAL)) { //전역 변수의 재할당 검증
             expression();
             emitBytes(OP_SET_GLOBAL, (uint8_t) arg);
             return;
@@ -466,7 +472,7 @@ static void block() {
     while (!check(TOKEN_RIGHT_BRACE) && !check(TOKEN_EOF)) { //사용자가 }를 까먹을 수도 있으므로 eof 체크
         declaration();
     }
-     consume(TOKEN_RIGHT_BRACE, "Expect '}' after block.");
+    consume(TOKEN_RIGHT_BRACE, "Expect '}' after block.");
 }
 
 static void varDeclaration(bool isConst) {
@@ -475,12 +481,14 @@ static void varDeclaration(bool isConst) {
 
     if (match(TOKEN_EQUAL)) {
         expression();
+    } else if (isConst) {
+        error("Const variable must be initialized.");
     } else {
         emitByte(OP_NIL);
     }
-    consume(TOKEN_SEMICOLON, "Expect ':' after variable declaration.");
+    consume(TOKEN_SEMICOLON, "Expect ';' after variable declaration.");
 
-    defineVariable(global);
+    defineVariable(global, isConst);
 }
 
 static void expressionStatement() {
@@ -519,9 +527,9 @@ static void synchronize() {
 }
 
 static void declaration() {
-    if(match(TOKEN_CONST)){
+    if (match(TOKEN_CONST)) {
         varDeclaration(true);
-    }else if (match(TOKEN_LET)) {
+    } else if (match(TOKEN_LET)) {
         varDeclaration(false);
     } else {
         statement();

@@ -19,14 +19,14 @@ void freeTable(Table *table) {
     initTable(table);
 }
 
-static Entry *findEntry(Entry *entries, int capacity, ObjString *key) {
+Entry *findEntry(Entry *entries, int capacity, ObjString *key) {
     uint32_t index = key->hash % capacity; // %연산자로 키의 해시 코드를 배열 경계 내부의 인덱스에 매핑
     Entry* tombstone = NULL;
     for (;;) { //버킷에 엔트리가 있지만 키가 달라서 해시 충돌이 일어날 경우 -> probing
         Entry *entry = &entries[index];
             //엔트리 자체가 없고 엔트리를 삽입하는 용도로 함수를 사용할 경우에는 새 엔트리를 추가할 위치를 찾았다는 뜻
             // 삽입을 하는 경우에는 새 엔트리를 추가하는 대신 찾은 키의 값을 바꿀 것이다.
-        if(entries->key == NULL){
+        if(entry->key == NULL){
             if(IS_NIL(entries->value)){
                 //엔트리를 비운다
                 return tombstone != NULL ? tombstone : entry;
@@ -77,7 +77,7 @@ static void adjustCapacity(Table *table, int capacity) { // 버킷 배열 할당
     table->capacity = capacity;
 }
 
-bool tableSet(Table *table, ObjString *key, Value value) {
+bool tableSet(Table *table, ObjString *key, Value value, bool isConst) {
     if (table->count + 1 > table->capacity * TABLE_MAX_LOAD) { //Entry 배열 할당 전에 배열이 존재하는지 확인, 혹은 크기가 충분한지 확인하기
         int capacity = GROW_CAPACITY(table->capacity);
         adjustCapacity(table, capacity);
@@ -89,6 +89,7 @@ bool tableSet(Table *table, ObjString *key, Value value) {
 
     entry->key = key;
     entry->value = value;
+    entry->isConst = isConst;
     return isNewKey;
 }
 
@@ -109,7 +110,7 @@ void tableAddAll(Table *from, Table *to){
     for(int i =0; i < from->capacity; i++){
         Entry* entry =&from->entries[i];
         if(entry->key !=NULL ){
-            tableSet(to, entry->key, entry->value);
+            tableSet(to, entry->key, entry->value, entry->isConst);
         }
     }
 }
@@ -125,7 +126,7 @@ ObjString* tableFindString(Table* table , const char* chars, int length, uint32_
             //툼스톤이 아닌 엔트리가 나올 경우 멈춘다
             if(IS_NIL(entry->value)) return NULL;
         } else if(entry->key->length == length && entry->key->hash == hash &&
-                memcpy(entry->key->chars, chars, length) == 0){
+                memcmp(entry->key->chars, chars, length) == 0){
             //찾은 경우
             return entry->key;
         }

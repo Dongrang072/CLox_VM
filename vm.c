@@ -131,25 +131,36 @@ static InterpretResult run() {
                 break;
             }
             case OP_GET_GLOBAL: {
-                ObjString* name = READ_STRING();
+                ObjString* name = READ_STRING();// 추가된 디버깅 출력
                 Value value;
-                if(!tableGet(&vm.globals, name, &value)) {
+                if (!tableGet(&vm.globals, name, &value)) {
                     runtimeError("Undefined variable '%s'.", name->chars);
                     return INTERPRET_RUNTIME_ERROR;
                 }
                 push(value);
                 break;
             }
-            case OP_DEFINE_GLOBAL: { //테이블에 키가 이미 있는지 확인은 하지 않는다.
+            case OP_DEFINE_CONST_GLOBAL: { //테이블에 키가 이미 있는지 확인은 하지 않는다.
                 //키가 이미 해시 테이블에 있는 경우 그냥 값을 덮어씌운다
                 ObjString *name = READ_STRING();
-                tableSet(&vm.globals, name, peek(0)); //해시 테이블에 값을 추가할 때까지 값을 pop()하지 않는다
+                tableSet(&vm.globals, name, peek(0), true); //해시 테이블에 값을 추가할 때까지 값을 pop()하지 않는다
+                pop();
+                break;
+            }
+            case OP_DEFINE_LET_GLOBAL:{
+                ObjString *name = READ_STRING();
+                tableSet(&vm.globals, name, peek(0), false);
                 pop();
                 break;
             }
             case OP_SET_GLOBAL: { //변수를 set 해도 스택에서 값을 pop()하지 않는다. 할당은 표현식이다
                 ObjString* name =READ_STRING();
-                if(tableSet(&vm.globals, name, peek(0))) {
+                bool isConst = findEntry(vm.globals.entries, vm.globals.capacity, name)->isConst;
+                if(isConst){
+                    runtimeError("Cannot assign to constant variable '%s'.", name->chars);
+                    return INTERPRET_RUNTIME_ERROR;
+                }
+                if(tableSet(&vm.globals, name, peek(0), false)) {
                     tableDelete(&vm.globals, name);
                     runtimeError("Undefined variable '%s'.", name->chars);
                     return INTERPRET_RUNTIME_ERROR;

@@ -9,7 +9,7 @@
 
 //올바른 ObjString 포인터를 포함하리라 예상하는 Value를 인수로 받음
 #define AS_STRING(value) ((ObjString*)AS_OBJ(value))
-#define AS_CSTRING(vale) (((ObjString*)AS_OBJ(value))->chars)
+#define AS_CSTRING(value) (((ObjString*)AS_OBJ(value))->chars)
 
 typedef enum {
     OBJ_STRING,

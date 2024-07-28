@@ -26,25 +26,25 @@ static ObjString *allocateString(char *chars, int length, uint32_t hash) { //OOP
     string->length = length;
     string->chars = chars;
     string->hash = hash;
-    tableSet(&vm.strings, string, NIL_VAL);
+    tableSet(&vm.strings, string, NIL_VAL, false);
     return string;
 }
 
-static uint32_t hashString(const char* key, int length){ //FNV-1a algorithm
+static uint32_t hashString(const char *key, int length) { //FNV-1a algorithm
     uint32_t hash = 2166136261u;
-    for(int i=0; i< length; i++){
-        hash ^=(uint8_t)key[i];
-        hash *=16777619;
+    for (int i = 0; i < length; i++) {
+        hash ^= (uint8_t) key[i];
+        hash *= 16777619;
     }
     return hash;
 }
 
-ObjString* takeString(char* chars, int length){
+ObjString *takeString(char *chars, int length) {
     uint32_t hash = hashString(chars, length);
-    ObjString* interned = tableFindString(&vm.strings, chars, length, hash);
+    ObjString *interned = tableFindString(&vm.strings, chars, length, hash);
 
-    if(interned != NULL){
-        FREE_ARRAY(char , chars, length +1);
+    if (interned != NULL) {
+        FREE_ARRAY(char, chars, length + 1);
         return interned;
     }
 
@@ -53,8 +53,8 @@ ObjString* takeString(char* chars, int length){
 
 ObjString *copyString(const char *chars, int length) { //사용자가 전달할 문자의 소유권을 가져올 수 없다고 가정함
     uint32_t hash = hashString(chars, length);
-    ObjString* interned = tableFindString(&vm.strings , chars, length, hash);
-    if(interned != NULL) return interned;
+    ObjString *interned = tableFindString(&vm.strings, chars, length, hash);
+    if (interned != NULL) return interned;
 
     char *heapChars = ALLOCATE(char, length + 1);
     memcpy(heapChars, chars, length);
@@ -62,7 +62,7 @@ ObjString *copyString(const char *chars, int length) { //사용자가 전달할 
     return allocateString(heapChars, length, hash);
 }
 
-void  printObject(Value value){
+void printObject(Value value) {
     switch (OBJ_TYPE(value)) {
         case OBJ_STRING:
             printf("%s", AS_CSTRING(value));
