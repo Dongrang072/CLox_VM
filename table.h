@@ -32,4 +32,6 @@ void tableAddAll(Table *from, Table *to);
 
 ObjString *tableFindString(Table *table, const char *chars, int length, uint32_t hash);
 
+Entry *findEntry(Entry *entries, int capacity, ObjString *key);
+
 #endif //CLOX_TABLE_H

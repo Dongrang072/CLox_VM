@@ -26,7 +26,7 @@ static ObjString *allocateString(char *chars, int length, uint32_t hash) { //OOP
     string->length = length;
     string->chars = chars;
     string->hash = hash;
-    tableSet(&vm.strings, string, NIL_VAL, false);
+    tableSet(&vm.strings, string, NIL_VAL, false); //문자열 상수는 const가 아니므로 entry->isConst는 false
     return string;
 }
 

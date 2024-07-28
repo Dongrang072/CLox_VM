@@ -30,6 +30,15 @@ static int constantInstruction(const char *name, Chunk *chunk, int offset) {
     return offset + 2;
 }
 
+static int defineGlobalInstruction(const char* name, Chunk* chunk, int offset){
+    uint8_t constant = chunk->code[offset +1];
+    uint8_t isConst = chunk->code[offset +2];
+    printf("%-16s %4d '", name, constant);
+    printValue(chunk->constants.values[constant]);
+    printf("' %s\n", isConst == OP_TRUE ? "const" : "let");
+    return offset + 3;
+}
+
 //static int longConstantInstruction(const char *name, Chunk *chunk, int offset) {
 //    uint8_t byte1 = chunk->code[offset + 1];
 //    uint8_t byte2 = chunk->code[offset + 2];

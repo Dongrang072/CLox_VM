@@ -78,6 +78,7 @@ static InterpretResult run() {
 #define READ_BYTE() (*vm.ip++) //bytecode dispatch
 #define READ_CONSTANT() (vm.chunk->constants.values[READ_BYTE()])
 #define READ_STRING() AS_STRING(READ_CONSTANT())
+#define READ_IS_CONST() (READ_BYTE() == OP_TRUE) // OP_TRUE or OP_FALSE
 #define BINARY_OP(valueType, op) \
     do{\
         if(!IS_NUMBER(peek(0)) || !IS_NUMBER(peek(1))) { \
