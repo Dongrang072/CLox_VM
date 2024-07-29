@@ -117,26 +117,52 @@ static void emitByte(uint8_t byte) { //chunk에 1바이트 추가
     writeChunk(currentChunk(), byte, parser.previous.line);
 }
 
-static void emitBytes(uint8_t byte1, uint8_t byte2) {
+static void emit2Bytes(uint8_t byte1, uint8_t byte2) {
     emitByte(byte1);
     emitByte(byte2);
+}
+
+static void emit3Bytes(uint32_t byte1, uint32_t byte2, uint32_t byte3){
+    emit2Bytes(byte1, byte2);
+    emitByte(byte3);
 }
 
 static void emitReturn() {
     emitByte(OP_RETURN);
 }
 
-static uint8_t makeConstant(Value value) {
+static int makeConstant(Value value) {
     int constant = addConstant(currentChunk(), value);
-    if (constant > UINT8_MAX) { //OP_CONSTANT 명령어는 인덱스 피연산자로 1바이트를 사용하므로 최대 256개 상수까지 저장/로드 가능
+    if (constant > UINT8_MAX) { //OP_CONSTANT 명령어는 인덱스 피연산자로 1바이트를 사용함으로 최대 256개 상수까지 저장/로드 가능
         error("Too many constants in one chunk.");
         return 0;
     }
+#if 0
+    if(constant > UINT8_MAX) {
+        //remove the last byte written OP_CONSTANT;
+        undoLastByte(currentChunk());
+        //remove the constant
+        undoPreviousWrite(&(currentChunk()->constants));
+        constant = writeConstant(currentChunk(), value, parser.previous.line);
+
+        if(constant > MAX_CONST_INDEX) {
+            error("Too many constants in one chunk.");
+        }
+    }else {
+        emitByte(constant);
+    }
+#endif
+    if(constant > UINT8_MAX){
+        error("Too many constants in one chunk.");
+    }
+
     return (uint8_t) constant;
 }
 
 static void emitConstant(Value value) { //상수 테이블에 엔트리 추가
-    emitBytes(OP_CONSTANT, makeConstant(value));
+    emitByte(OP_CONSTANT);
+    emitByte(makeConstant(value)); /* second byte emitted from
+					  make_constant*/
 }
 
 static void initCompiler(Compiler *compiler) {
@@ -251,9 +277,9 @@ static void defineVariable(uint8_t global, bool isConst) {
     }
 
     if (isConst) {
-        emitBytes(OP_DEFINE_CONST_GLOBAL, global);
+        emit2Bytes(OP_DEFINE_CONST_GLOBAL, global);
     } else {
-        emitBytes(OP_DEFINE_LET_GLOBAL, global);
+        emit2Bytes(OP_DEFINE_LET_GLOBAL, global);
     }
 
 }
@@ -265,7 +291,7 @@ static void binary(bool canAssgin) {
 
     switch (operatorType) {
         case TOKEN_BANG_EQUAL:
-            emitBytes(OP_EQUAL, OP_NOT);
+            emit2Bytes(OP_EQUAL, OP_NOT);
             break;
         case TOKEN_EQUAL_EQUAL:
             emitByte(OP_EQUAL);
@@ -274,13 +300,13 @@ static void binary(bool canAssgin) {
             emitByte(OP_GREATER);
             break;
         case TOKEN_GREATER_EQUAL:
-            emitBytes(OP_LESS, OP_NOT);
+            emit2Bytes(OP_LESS, OP_NOT);
             break;
         case TOKEN_LESS:
             emitByte(OP_LESS);
             break;
         case TOKEN_LESS_EQUAL:
-            emitBytes(OP_GREATER, OP_NOT);
+            emit2Bytes(OP_GREATER, OP_NOT);
             break;
         case TOKEN_PLUS:
             emitByte(OP_ADD);
@@ -342,7 +368,7 @@ static void namedVariable(Token name, bool canAssign) {
         arg = identifierConstant(&name);
         if (canAssign && match(TOKEN_EQUAL)) { //전역 변수의 재할당 검증
             expression();
-            emitBytes(OP_SET_GLOBAL, (uint8_t) arg);
+            emit2Bytes(OP_SET_GLOBAL, (uint8_t) arg);
             return;
         }
         getOp = OP_GET_GLOBAL;
@@ -350,9 +376,9 @@ static void namedVariable(Token name, bool canAssign) {
     }
     if (canAssign && match(TOKEN_EQUAL)) {
         expression();
-        emitBytes(setOp, (uint8_t) arg);
+        emit2Bytes(setOp, (uint8_t) arg);
     } else {
-        emitBytes(getOp, (uint8_t) arg);
+        emit2Bytes(getOp, (uint8_t) arg);
     }
 }
 

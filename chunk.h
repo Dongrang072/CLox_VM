@@ -42,8 +42,10 @@ typedef struct { //dynamic Array
     int count;
     int capacity;
     uint8_t *code;
-    int* lines;
+    int *lines; // line number to report error
     ValueArray constants;
+    int currentLine;  // the line number of the current instruction
+    int linesCapacity; // capacity of the lines array
 } Chunk;
 
 void initChunk(Chunk *chunk);
@@ -54,6 +56,10 @@ void writeChunk(Chunk *chunk, uint8_t byte, int line);
 
 int addConstant(Chunk *chunk, Value value);
 
-//int getLine(Chunk *chunk, int instructionIndex);
+int writeConstant(Chunk *chunk, Value value, int line);
+
+int getLineNumber(Chunk *chunk, int offset);
+
+void undoLastByte(Chunk *chunk);
 
 #endif //CLOX_CHUNK_H

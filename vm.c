@@ -23,7 +23,7 @@ static void runtimeError(const char *format, ...) {
     fputs("\n", stderr);
 
     size_t instruction = vm.ip - vm.chunk->code - 1; //runtimeError()를 호출한 시점의 실패한 명령어는 이전의 명령어다
-    int line = vm.chunk->lines[instruction];
+    int line = getLineNumber(vm.chunk, instruction);
     fprintf(stderr, "[line %d] in script\n", line);
     resetStack();
 
@@ -77,6 +77,7 @@ static void concatenate() {
 static InterpretResult run() {
 #define READ_BYTE() (*vm.ip++) //bytecode dispatch
 #define READ_CONSTANT() (vm.chunk->constants.values[READ_BYTE()])
+#define READ_CONSTANT_LONG(i) (vm.chunk->constants.values[i])
 #define READ_STRING() AS_STRING(READ_CONSTANT())
 #define READ_IS_CONST() (READ_BYTE() == OP_TRUE) // OP_TRUE or OP_FALSE
 #define BINARY_OP(valueType, op) \
@@ -109,6 +110,15 @@ static InterpretResult run() {
                 printf("\n");
                 break;
             }
+            case OP_CONSTANT_LONG: {
+                uint32_t i = READ_BYTE();
+                i = (i << 8) | READ_BYTE();
+                i = (i << 8) | READ_BYTE();
+
+                Value constant = READ_CONSTANT_LONG(i);
+                push(constant);
+                break;
+            }
             case OP_NIL:
                 push(NIL_VAL);
                 break;
@@ -121,7 +131,7 @@ static InterpretResult run() {
             case OP_POP:
                 pop();
                 break;
-            case OP_GET_LOCAL:{
+            case OP_GET_LOCAL: {
                 uint8_t slot = READ_BYTE();
                 push(vm.stack[slot]);
                 break;
@@ -132,7 +142,7 @@ static InterpretResult run() {
                 break;
             }
             case OP_GET_GLOBAL: {
-                ObjString* name = READ_STRING();// 추가된 디버깅 출력
+                ObjString *name = READ_STRING();// 추가된 디버깅 출력
                 Value value;
                 if (!tableGet(&vm.globals, name, &value)) {
                     runtimeError("Undefined variable '%s'.", name->chars);
@@ -148,20 +158,20 @@ static InterpretResult run() {
                 pop();
                 break;
             }
-            case OP_DEFINE_LET_GLOBAL:{
+            case OP_DEFINE_LET_GLOBAL: {
                 ObjString *name = READ_STRING();
                 tableSet(&vm.globals, name, peek(0), false);
                 pop();
                 break;
             }
             case OP_SET_GLOBAL: { //변수를 set 해도 스택에서 값을 pop()하지 않는다. 할당은 표현식이다
-                ObjString* name =READ_STRING();
+                ObjString *name = READ_STRING();
                 bool isConst = findEntry(vm.globals.entries, vm.globals.capacity, name)->isConst;
-                if(isConst){
+                if (isConst) {
                     runtimeError("Cannot assign to constant variable '%s'.", name->chars);
                     return INTERPRET_RUNTIME_ERROR;
                 }
-                if(tableSet(&vm.globals, name, peek(0), false)) {
+                if (tableSet(&vm.globals, name, peek(0), false)) {
                     tableDelete(&vm.globals, name);
                     runtimeError("Undefined variable '%s'.", name->chars);
                     return INTERPRET_RUNTIME_ERROR;
@@ -223,6 +233,7 @@ static InterpretResult run() {
     }
 #undef READ_BYTE
 #undef READ_CONSTANT
+#undef READ_CONSTANT_LONG
 #undef READ_STRING
 #undef BINARY_OP
 }

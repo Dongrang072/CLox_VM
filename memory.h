@@ -13,7 +13,10 @@
     ((capacity) < 8 ? 8 : (capacity) * 2)
 
 #define GROW_ARRAY(type, pointer, oldCount, newCount) \
-    (type*)reallocate(pointer, sizeof(type) * (oldCount), sizeof(type) * (newCount))
+    (type*)reallocate((pointer), sizeof(type) * (oldCount), sizeof(type) * (newCount))
+
+#define ZERO_INITIALIZE(type, pointer, oldLength, newLength) \
+    memset((pointer), 0, ((newLength) - (oldLength)) * sizeof(type))
 
 #define FREE_ARRAY(type, pointer, oldCount) \
     reallocate(pointer, sizeof(type) * (oldCount), 0)

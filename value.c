@@ -28,6 +28,10 @@ void freeValueArray(ValueArray *array) {
     initValueArray(array);
 }
 
+void undoPreviousWrite(ValueArray *valueArray){
+    valueArray->count--;
+}
+
 void printValue(Value value) {
     switch (value.type) {
         case VAL_BOOL:
