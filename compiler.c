@@ -137,21 +137,6 @@ static int makeConstant(Value value) {
         error("Too many constants in one chunk.");
         return 0;
     }
-#if 0
-    if(constant > UINT8_MAX) {
-        //remove the last byte written OP_CONSTANT;
-        undoLastByte(currentChunk());
-        //remove the constant
-        undoPreviousWrite(&(currentChunk()->constants));
-        constant = writeConstant(currentChunk(), value, parser.previous.line);
-
-        if(constant > MAX_CONST_INDEX) {
-            error("Too many constants in one chunk.");
-        }
-    }else {
-        emitByte(constant);
-    }
-#endif
     if(constant > UINT8_MAX){
         error("Too many constants in one chunk.");
     }
