@@ -25,7 +25,6 @@ static char *readFile(const char *path) {
     }
     fseek(file, 0L, SEEK_END); //fseek()으로 파일 끝을 찾음
     size_t fileSize = ftell(file);//ftell()을 호출해서 파일 시작부에서 몇 바이트나 떨어져있는지 알아냄
-    printf("File size: %zu bytes.\n", fileSize);  // 파일 크기 확인 로그
     rewind(file);
 
     char *buffer = (char *) malloc(fileSize + 1); // + null byte
@@ -38,7 +37,6 @@ static char *readFile(const char *path) {
         fprintf(stderr, "Could not read file \"%s\".\n", path);
     }
     buffer[bytesRead] = '\0';
-    printf("Read %zu bytes from file.\n", bytesRead);  // 읽은 바이트 수 확인 로그
 
     fclose(file);
     return buffer;
@@ -59,7 +57,6 @@ int main(int argc, const char *argv[]) {
     if (argc == 1) {
         repl();
     } else if (argc == 2) {
-        printf("Attempting to open file: %s\n", argv[1]);
         runFile(argv[1]);
     } else {
         fprintf(stderr, "Usage: clox [path]\n");
