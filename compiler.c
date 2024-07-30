@@ -21,7 +21,7 @@ typedef struct {
 typedef enum { //우선순위에 따라 크고 작음을 다룸
     PREC_NONE,
     PREC_ASSIGNMENT, // =
-    PREC_TERNARY, // a ? b : c ternary()
+    PREC_CONDITIONAL, // a ? b : c ternary()
     PREC_OR,         //or
     PREC_AND,        // and
     PREC_EQUALITY,   // == !=
@@ -122,6 +122,23 @@ static void emitBytes(uint8_t byte1, uint8_t byte2) {
     emitByte(byte2);
 }
 
+static void emitLoop(int loopStart) {
+    emitByte(OP_LOOP);
+
+    int offset = currentChunk()->count - loopStart + 2;
+    if (offset > UINT16_MAX) error("Loop body too large.");
+
+    emitByte((offset >> 8) & 0xff);
+    emitByte(offset & 0xff);
+}
+
+static int emitJump(uint8_t instruction) {
+    emitByte(instruction);
+    emitByte(0xff);
+    emitByte(0xff);
+    return currentChunk()->count - 2;
+}
+
 static void emitReturn() {
     emitByte(OP_RETURN);
 }
@@ -135,18 +152,7 @@ static int makeConstant(Value value) {
     return (uint8_t) constant;
 }
 
-static void emitGlobalInstruction(uint8_t shortOpcode, uint8_t longOpcode, uint32_t index) {
-    if (index < 256) {
-        emitBytes(shortOpcode, (uint8_t)index);
-    } else {
-        emitByte(longOpcode);
-        emitByte((index >> 16) & 0xFF);
-        emitByte((index >> 8) & 0xFF);
-        emitByte(index & 0xFF);
-    }
-}
-
-static void emitConstant(Value value){
+static void emitConstant(Value value) {
     int constant = addConstant(currentChunk(), value);
     if (constant <= UINT8_MAX) {
         emitBytes(OP_CONSTANT, (uint8_t) constant);
@@ -160,6 +166,41 @@ static void emitConstant(Value value){
     }
 }
 
+//static uint8_t makeConstant(Value value) {
+//    int constant = addConstant(currentChunk(), value);
+//    if (constant > UINT8_MAX) {
+//        error("Too many constants in one chunk.");
+//        return 0;
+//    }
+//
+//    return (uint8_t) constant;
+//}
+//
+//static void emitConstant(Value value) {
+//    emitBytes(OP_CONSTANT, makeConstant(value));
+//}
+
+
+//static void emitGlobalInstruction(uint8_t shortOpcode, uint8_t longOpcode, uint32_t index) {
+//    if (index < 256) {
+//        emitBytes(shortOpcode, (uint8_t) index);
+//    } else {
+//        emitByte(longOpcode);
+//        emitByte((index >> 16) & 0xFF);
+//        emitByte((index >> 8) & 0xFF);
+//        emitByte(index & 0xFF);
+//    }
+//}
+
+static void patchJump(int offset) {
+    //점프 offset 자체를 보정하기 위해 바이트코드에서 2를 뺀다
+    int jump = currentChunk()->count - offset - 2;
+    if (jump > UINT16_MAX) {
+        error("Too much jump over.");
+    }
+    currentChunk()->code[offset] = (jump >> 8) & 0xff;
+    currentChunk()->code[offset + 1] = jump & 0xff;
+}
 
 static void initCompiler(Compiler *compiler) {
     compiler->localCount = 0;
@@ -280,7 +321,16 @@ static void defineVariable(uint8_t global, bool isConst) {
 
 }
 
-static void binary(bool canAssgin) {
+static void and_(bool canAss) { // 이 함수가 호출될 때 이미 좌측 표현식은 컴파일 된 상태
+    int endJump = emitJump(OP_JUMP_IF_FALSE);
+
+    emitByte(OP_POP);
+    parsePrecedence(PREC_AND);
+
+    patchJump(endJump);
+}
+
+static void binary(bool canAssign) {
     TokenType operatorType = parser.previous.type;
     ParseRule *rule = getRule(operatorType);
     parsePrecedence((Precedence) (rule->precedence + 1));
@@ -337,17 +387,45 @@ static void literal(bool canAssgin) {
     }
 }
 
-static void grouping(bool canAssgin) {
+static void grouping(bool canAssign) {
     expression();
     consume(TOKEN_RIGHT_PAREN, "Expect ')' after expression");
 }
 
-static void number(bool canAssgin) {
+static void number(bool canAssign) {
     double value = strtod(parser.previous.start, NULL);
     emitConstant(NUMBER_VAL(value));
 }
 
-static void string(bool canAssgin) {
+static void conditional(bool canAssign) {
+    int thenJump = emitJump(OP_JUMP_IF_FALSE);
+    emitByte(OP_POP);
+
+    //then branch
+    parsePrecedence(PREC_CONDITIONAL);
+    int elseJump = emitJump(OP_JUMP);
+
+    patchJump(thenJump);
+    emitByte(OP_POP);
+    consume(TOKEN_COLON, "Expect ':' after then branch of conditional   operator.");
+
+    //else branch
+    parsePrecedence(PREC_ASSIGNMENT);
+    patchJump(elseJump);
+}
+
+static void or_(bool canAssign) {
+    int elseJump = emitJump(OP_JUMP_IF_FALSE);
+    int endJump = emitJump(OP_JUMP);
+
+    patchJump(elseJump);
+    emitByte(OP_POP);
+
+    parsePrecedence(PREC_OR);
+    patchJump(endJump);
+}
+
+static void string(bool canAssign) {
     emitConstant(OBJ_VAL(copyString(parser.previous.start + 1, parser.previous.length - 2))); // 전후 " 제거
 }
 
@@ -356,7 +434,7 @@ static void namedVariable(Token name, bool canAssign) {
     int arg = resolveLocal(current, &name);
     if (arg != -1) {
         if (current->locals[arg].isConst && canAssign && match(TOKEN_EQUAL)) {
-            error("Can not assign to const variable.");
+            error("Can not assign to 'const' variable.");
         }
         getOp = OP_GET_LOCAL;
         setOp = OP_SET_LOCAL;
@@ -382,19 +460,8 @@ static void variable(bool canAssign) {
     namedVariable(parser.previous, canAssign);
 }
 
-//static void ternary() {
-//    // 현재는 `?` 토큰을 이미 소비한 상태
-//    // 조건 부분은 이미 파싱되었고 스택에 남아있음
-//    parsePrecedence(PREC_TERNARY);
-//    consume(TOKEN_COLON, "Expect ':' after then branch of conditional expression.");
-//
-//    parsePrecedence(PREC_ASSIGNMENT);
-//
-//    emitByte(OP_TERNARY_TRUE);
-//    emitByte(OP_TERNARY_FALSE);
-//}
 
-static void unary(bool canAssgin) {
+static void unary(bool canAssign) {
     TokenType operatorType = parser.previous.type;
     //expression()을 재귀 호출 해서 피연산자 컴파일
     parsePrecedence(PREC_UNARY);
@@ -423,8 +490,9 @@ ParseRule rules[] = {
         [TOKEN_SEMICOLON] ={NULL, NULL, PREC_NONE},
         [TOKEN_SLASH] ={NULL, binary, PREC_FACTOR},
         [TOKEN_STAR] = {NULL, binary, PREC_FACTOR},
-//        [TOKEN_QUESTION] = {NULL, ternary, PREC_TERNARY}, // 삼항 연산자
-//        [TOKEN_COLON] = {NULL, NULL, PREC_TERNARY}, // 콜론 연산자
+
+        [TOKEN_QUESTION] = {NULL, conditional, PREC_CONDITIONAL}, // 삼항 연산자
+        [TOKEN_COLON] = {NULL, NULL,PREC_NONE}, // 콜론 연산자
 
         [TOKEN_BANG] ={unary, NULL, PREC_NONE}, // NOT
         [TOKEN_BANG_EQUAL] ={NULL, binary, PREC_EQUALITY},
@@ -439,7 +507,7 @@ ParseRule rules[] = {
         [TOKEN_STRING] ={string, NULL, PREC_NONE},
         [TOKEN_NUMBER] = {number, NULL, PREC_NONE},
 
-        [TOKEN_AND] ={NULL, NULL, PREC_NONE},
+        [TOKEN_AND] ={NULL, and_, PREC_AND},
         [TOKEN_CLASS] ={NULL, NULL, PREC_NONE},
         [TOKEN_ELSE] ={NULL, NULL, PREC_NONE},
         [TOKEN_FALSE] ={literal, NULL, PREC_NONE},
@@ -447,7 +515,7 @@ ParseRule rules[] = {
         [TOKEN_FUN] ={NULL, NULL, PREC_NONE},
         [TOKEN_IF] ={NULL, NULL, PREC_NONE},
         [TOKEN_NIL] ={literal, NULL, PREC_NONE},
-        [TOKEN_OR] ={NULL, NULL, PREC_NONE},
+        [TOKEN_OR] ={NULL, or_, PREC_OR},
         [TOKEN_PRINT] ={NULL, NULL, PREC_NONE},
         [TOKEN_RETURN] ={NULL, NULL, PREC_NONE},
         [TOKEN_SUPER] ={NULL, NULL, PREC_NONE},
@@ -504,7 +572,7 @@ static void varDeclaration(bool isConst) {
     if (match(TOKEN_EQUAL)) {
         expression();
     } else if (isConst) {
-        error("Const variable must be initialized.");
+        error("'const' variable must be initialized.");
     } else {
         emitByte(OP_NIL);
     }
@@ -519,10 +587,89 @@ static void expressionStatement() {
     emitByte(OP_POP); //시맨틱상 표현문은 표현식을 평가는 하지만 그 결과는 버린다
 }
 
+static void forStatement() {
+    beginScope();
+    consume(TOKEN_LEFT_PAREN, "Expect '(' after 'for'.");
+
+    if (match(TOKEN_SEMICOLON)) {
+        //no initializer
+    } else if (match(TOKEN_LET)) { // only let can be re-assigned
+        varDeclaration(false);
+    } else if (match(TOKEN_CONST)) {
+        error("'const' variables cannot be used in for loop initializer.");
+    } else {
+        expressionStatement();
+    }
+
+    int loopStart = currentChunk()->count;
+    int exitJump = -1;
+
+    if (!match(TOKEN_SEMICOLON)) {
+        expression();
+        consume(TOKEN_SEMICOLON, "Expect ';' after loop condition.");
+        exitJump = emitJump(OP_JUMP_IF_FALSE);
+        emitByte(OP_POP);
+    }
+
+    if (!match(TOKEN_RIGHT_PAREN)) {
+        int bodyJump = emitJump(OP_JUMP);
+        int incrementStart = currentChunk()->count;
+        expression();
+        emitByte(OP_POP);
+        consume(TOKEN_RIGHT_PAREN, "Expect ')' after for clauses.");
+
+        emitLoop(loopStart);
+        loopStart = incrementStart;
+        patchJump(bodyJump);
+    }
+
+    statement();
+    emitLoop(loopStart);
+
+    if (exitJump != -1) {
+        patchJump(exitJump);
+        emitByte(OP_POP); //condition
+    }
+
+    endScope();
+}
+
+static void ifStatement() {
+    consume(TOKEN_LEFT_PAREN, "Expect '(' after 'if.");
+    expression();
+    consume(TOKEN_RIGHT_PAREN, "Expect ')' after 'if.");
+
+    int thenJump = emitJump(OP_JUMP_IF_FALSE);
+    emitByte(OP_POP);
+    statement();
+
+    int elseJump = emitJump(OP_JUMP);
+    patchJump(thenJump);
+    emitByte(OP_POP);
+
+    if (match(TOKEN_ELSE)) statement();
+    patchJump(elseJump);
+}
+
 static void printStatement() {
     expression(); //print문은 표현식을 평가하고 그 결과를 출력함
     consume(TOKEN_SEMICOLON, "Expect ';' after value.");
     emitByte(OP_PRINT);
+}
+
+static void whileStatement() {
+    int loopStart = currentChunk()->count;
+    consume(TOKEN_LEFT_PAREN, "Expect '(' after 'while'.");
+    expression();
+    consume(TOKEN_RIGHT_PAREN, "Expect ')' after 'while'.");
+
+    int exitJump = emitJump(OP_JUMP_IF_FALSE);
+    emitByte(OP_POP);
+    statement();
+    emitLoop(loopStart);
+
+    patchJump(exitJump);
+    emitByte(OP_POP);
 }
 
 static void synchronize() {
@@ -562,6 +709,12 @@ static void declaration() {
 static void statement() {
     if (match(TOKEN_PRINT)) {
         printStatement();
+    } else if (match(TOKEN_FOR)) {
+        forStatement();
+    } else if (match(TOKEN_IF)) {
+        ifStatement();
+    } else if (match(TOKEN_WHILE)) {
+        whileStatement();
     } else if (match(TOKEN_LEFT_BRACE)) {
         beginScope();
         block();

@@ -34,4 +34,5 @@ ObjString *tableFindString(Table *table, const char *chars, int length, uint32_t
 
 Entry *findEntry(Entry *entries, int capacity, ObjString *key);
 
+
 #endif //CLOX_TABLE_H

@@ -7,31 +7,20 @@ void initChunk(Chunk *chunk) {
     chunk->capacity = 0;
     chunk->code = NULL;
     chunk->lines = NULL;
-    chunk->currentLine = 0;
-    chunk->linesCapacity = 0;
     initValueArray(&chunk->constants);
 }
 
 void writeChunk(Chunk *chunk, uint8_t byte, int line) {
-    if (chunk->capacity < chunk->count + 1) {
+    if (chunk->count >= chunk->capacity) {
         int oldCapacity = chunk->capacity;
         chunk->capacity = GROW_CAPACITY(oldCapacity);
         chunk->code = GROW_ARRAY(uint8_t, chunk->code, oldCapacity, chunk->capacity);
+        chunk->lines = GROW_ARRAY(int, chunk->lines, oldCapacity, chunk->capacity);
     }
 
     chunk->code[chunk->count] = byte;
+    chunk->lines[chunk->count] = line;
     chunk->count++;
-
-    if (chunk->lines == NULL || chunk->currentLine == 0 || chunk->lines[chunk->currentLine - 1] != line) {
-        if (chunk->linesCapacity < chunk->currentLine + 1) {
-            int oldLinesCapacity = chunk->linesCapacity;
-            chunk->linesCapacity = GROW_CAPACITY(oldLinesCapacity);
-            chunk->lines = GROW_ARRAY(int, chunk->lines, oldLinesCapacity, chunk->linesCapacity);
-        }
-
-        chunk->lines[chunk->currentLine] = line;
-        chunk->currentLine++;
-    }
 }
 
 void undoLastByte(Chunk *chunk) {
@@ -48,7 +37,7 @@ int addConstant(Chunk *chunk, Value value) {
 
 void freeChunk(Chunk *chunk) {
     FREE_ARRAY(uint8_t, chunk->code, chunk->capacity);
-    FREE_ARRAY(int, chunk->lines, chunk->linesCapacity);
+    FREE_ARRAY(int, chunk->lines, chunk->capacity);
     freeValueArray(&chunk->constants);
     initChunk(chunk);
 }
@@ -70,18 +59,7 @@ int writeConstant(Chunk *chunk, Value value, int line) { //The maximum number of
     return constIndex;
 }
 
-int getLineNumber(Chunk *chunk, int offset) {
-    if (!chunk || !chunk->lines) return -1;
 
-    int currentOffset = 0;
-    for (int i = 0; i < chunk->currentLine; i++) {
-        if (offset < currentOffset + chunk->lines[i]) {
-            return chunk->lines[i];
-        }
-        currentOffset += chunk->lines[i];
-    }
-    return -1;
-}
 
 
 

@@ -27,9 +27,10 @@ typedef enum {
     OP_NOT,
     OP_NEGATIVE,
     OP_PRINT,
+    OP_JUMP,
+    OP_JUMP_IF_FALSE,
+    OP_LOOP,
     OP_RETURN,
-    OP_TERNARY_TRUE,
-    OP_TERNARY_FALSE,
 } OpCode;
 
 typedef struct {
@@ -38,8 +39,6 @@ typedef struct {
     uint8_t *code;
     int *lines;
     ValueArray constants;
-    int currentLine;
-    int linesCapacity;
 } Chunk;
 
 void initChunk(Chunk *chunk);
@@ -51,8 +50,6 @@ void writeChunk(Chunk *chunk, uint8_t byte, int line);
 int addConstant(Chunk *chunk, Value value);
 
 int writeConstant(Chunk *chunk, Value value, int line);
-
-int getLineNumber(Chunk *chunk, int offset);
 
 void undoLastByte(Chunk *chunk);
 

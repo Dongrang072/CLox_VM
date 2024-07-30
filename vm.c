@@ -23,7 +23,7 @@ static void runtimeError(const char *format, ...) {
     fputs("\n", stderr);
 
     size_t instruction = vm.ip - vm.chunk->code - 1; //runtimeError()를 호출한 시점의 실패한 명령어는 이전의 명령어다
-    int line = getLineNumber(vm.chunk, instruction);
+    int line = vm.chunk->lines[instruction];
     fprintf(stderr, "[line %d] in script\n", line);
     resetStack();
 
@@ -77,6 +77,8 @@ static void concatenate() {
 static InterpretResult run() {
 #define READ_BYTE() (*vm.ip++) //bytecode dispatch
 #define READ_CONSTANT() (vm.chunk->constants.values[READ_BYTE()])
+#define READ_SHORT() \
+    (vm.ip +=2, (uint16_t)((vm.ip[-2] << 8) | vm.ip[-1]))
 #define READ_CONSTANT_LONG() (vm.chunk->constants.values[(READ_BYTE() << 16) | (READ_BYTE() << 8) | READ_BYTE()])
 #define READ_STRING() AS_STRING(READ_CONSTANT())
 #define READ_IS_CONST() (READ_BYTE() == OP_TRUE) // OP_TRUE or OP_FALSE
@@ -92,22 +94,21 @@ static InterpretResult run() {
         }while (false)
 
     for (;;) {
-#ifdef DEBUG_TRACE_EXECUTION //플래그가 켜지면 vm이 실행하기 직전에 디스어셈블한 결과를 매번 동적으로 출력
-        printf("        ");
-        for (Value *slot = vm.stack; slot < vm.stackTop; slot++) {
-            printf("[ ");
-            printValue(*slot);
-            printf(" ]");
-        }
-        printf("\n");
-        disassembleInstruction(vm.chunk, (int) (vm.ip - vm.chunk->code));
-#endif
+//#ifdef DEBUG_TRACE_EXECUTION //플래그가 켜지면 vm이 실행하기 직전에 디스어셈블한 결과를 매번 동적으로 출력
+//        printf("          ");
+//        for (Value *slot = vm.stack; slot < vm.stackTop; slot++) {
+//            printf("[ ");
+//            printValue(*slot);
+//            printf(" ]");
+//        }
+//        printf("\n");
+//        disassembleInstruction(vm.chunk, (int) (vm.ip - vm.chunk->code));
+//#endif
         uint8_t instruction;
         switch (instruction = READ_BYTE()) {
             case OP_CONSTANT: {
                 Value constant = READ_CONSTANT();
                 push(constant);
-                printf("\n");
                 break;
             }
             case OP_CONSTANT_LONG: {
@@ -167,11 +168,13 @@ static InterpretResult run() {
                     runtimeError("Cannot assign to constant variable '%s'.", name->chars);
                     return INTERPRET_RUNTIME_ERROR;
                 }
-                if (tableSet(&vm.globals, name, peek(0), false)) {
+                if (tableSet(&vm.globals, name, peek(0), isConst)) {
                     tableDelete(&vm.globals, name);
                     runtimeError("Undefined variable '%s'.", name->chars);
                     return INTERPRET_RUNTIME_ERROR;
                 }
+                printValue(peek(0)); // 변수 값 출력
+                printf("\n");
                 break;
             }
             case OP_EQUAL: {
@@ -222,6 +225,21 @@ static InterpretResult run() {
                 printValue(pop());
                 printf("\n");
                 break;
+            case OP_JUMP: {
+                uint16_t offset = READ_SHORT();
+                vm.ip +=offset;
+                break;
+            }
+            case OP_JUMP_IF_FALSE: {
+                uint16_t offset = READ_SHORT();
+                if(isFalsey(peek(0))) vm.ip += offset;
+                break;
+            }
+            case OP_LOOP: {
+                uint16_t offset = READ_SHORT();
+                vm.ip -= offset;
+                break;
+            }
             case OP_RETURN: {
                 return INTERPRET_OK;
             }
@@ -229,6 +247,7 @@ static InterpretResult run() {
     }
 #undef READ_BYTE
 #undef READ_CONSTANT
+#undef READ_SHORT
 #undef READ_CONSTANT_LONG
 #undef READ_STRING
 #undef BINARY_OP
@@ -241,7 +260,6 @@ InterpretResult interpret(const char *source) {
         freeChunk(&chunk);
         return INTERPRET_COMPILE_ERROR;
     }
-
     vm.chunk = &chunk;
     vm.ip = vm.chunk->code;
 

@@ -48,6 +48,7 @@ bool tableGet(Table* table, ObjString* key, Value* value){
     Entry* entry = findEntry(table->entries, table->capacity, key);
     if(entry->key == NULL) return false;
 
+
     *value =entry->value;
     return true;
 }
@@ -69,6 +70,7 @@ static void adjustCapacity(Table *table, int capacity) { // 버킷 배열 할당
         Entry *dest = findEntry(entries, capacity, entry->key);
         dest->key = entry->key;
         dest->value = entry->value;
+        dest->isConst = entry->isConst;
         table->count++; //툼스톤이 아닌 앤트리가 나올 때 마다 증가
     }
 
@@ -87,7 +89,6 @@ bool tableSet(Table *table, ObjString *key, Value value, bool isConst) {
     bool isNewKey = entry->key == NULL;
     if (isNewKey && IS_NIL(entry->value)) table->count++; //완전히 빈 버킷에 새 엔트리가 들어갈 때만 count++(count == 앤트리 수 + 툼스톤 수)
 
-
     if(!isNewKey && entry->isConst){ //const 변수는 재할당 할 수 없도록 예외 처리
         return false;
     }
@@ -95,6 +96,7 @@ bool tableSet(Table *table, ObjString *key, Value value, bool isConst) {
     entry->key = key;
     entry->value = value;
     entry->isConst = isConst;
+
     return isNewKey;
 }
 
