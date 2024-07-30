@@ -77,7 +77,7 @@ static void concatenate() {
 static InterpretResult run() {
 #define READ_BYTE() (*vm.ip++) //bytecode dispatch
 #define READ_CONSTANT() (vm.chunk->constants.values[READ_BYTE()])
-#define READ_CONSTANT_LONG(i) (vm.chunk->constants.values[i])
+#define READ_CONSTANT_LONG() (vm.chunk->constants.values[(READ_BYTE() << 16) | (READ_BYTE() << 8) | READ_BYTE()])
 #define READ_STRING() AS_STRING(READ_CONSTANT())
 #define READ_IS_CONST() (READ_BYTE() == OP_TRUE) // OP_TRUE or OP_FALSE
 #define BINARY_OP(valueType, op) \
@@ -111,11 +111,7 @@ static InterpretResult run() {
                 break;
             }
             case OP_CONSTANT_LONG: {
-                uint32_t i = READ_BYTE();
-                i = (i << 8) | READ_BYTE();
-                i = (i << 8) | READ_BYTE();
-
-                Value constant = READ_CONSTANT_LONG(i);
+                Value constant = READ_CONSTANT_LONG();
                 push(constant);
                 break;
             }

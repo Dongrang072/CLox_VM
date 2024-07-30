@@ -13,30 +13,25 @@ void initChunk(Chunk *chunk) {
 }
 
 void writeChunk(Chunk *chunk, uint8_t byte, int line) {
-    if (chunk->count + 1 > chunk->capacity) {
+    if (chunk->capacity < chunk->count + 1) {
         int oldCapacity = chunk->capacity;
         chunk->capacity = GROW_CAPACITY(oldCapacity);
         chunk->code = GROW_ARRAY(uint8_t, chunk->code, oldCapacity, chunk->capacity);
     }
 
-    if (chunk->currentLine + 2 >= chunk->linesCapacity) {
-        int oldCapacity = chunk->linesCapacity;
-        chunk->linesCapacity = GROW_CAPACITY(oldCapacity);
-        chunk->lines = GROW_ARRAY(int , chunk->lines, oldCapacity, chunk->linesCapacity);
-        ZERO_INITIALIZE(int , chunk->lines + oldCapacity, oldCapacity, chunk->linesCapacity);
-    }
-
     chunk->code[chunk->count] = byte;
     chunk->count++;
 
-    if (chunk->currentLine == 0 || line != chunk->lines[chunk->currentLine - 2]) {
-        chunk->currentLine += 2;
-        chunk->lines[chunk->currentLine - 2] = line;
-        chunk->lines[chunk->currentLine - 1] = 1;
-    } else {
-        chunk->lines[chunk->currentLine - 1]++;
-    }
+    if (chunk->lines == NULL || chunk->currentLine == 0 || chunk->lines[chunk->currentLine - 1] != line) {
+        if (chunk->linesCapacity < chunk->currentLine + 1) {
+            int oldLinesCapacity = chunk->linesCapacity;
+            chunk->linesCapacity = GROW_CAPACITY(oldLinesCapacity);
+            chunk->lines = GROW_ARRAY(int, chunk->lines, oldLinesCapacity, chunk->linesCapacity);
+        }
 
+        chunk->lines[chunk->currentLine] = line;
+        chunk->currentLine++;
+    }
 }
 
 void undoLastByte(Chunk *chunk) {
@@ -76,18 +71,16 @@ int writeConstant(Chunk *chunk, Value value, int line) { //The maximum number of
 }
 
 int getLineNumber(Chunk *chunk, int offset) {
-    if (offset < 0 || offset >= chunk->count) {
-        return -1; // invalid index
-    }
+    if (!chunk || !chunk->lines) return -1;
 
-    int i = 0;
-    int tally = chunk->lines[1];
-
-    while (offset + 1 > tally) {
-        i += 2;
-        tally += chunk->lines[i - 1];
+    int currentOffset = 0;
+    for (int i = 0; i < chunk->currentLine; i++) {
+        if (offset < currentOffset + chunk->lines[i]) {
+            return chunk->lines[i];
+        }
+        currentOffset += chunk->lines[i];
     }
-    return chunk->lines[i - 2];
+    return -1;
 }
 
 

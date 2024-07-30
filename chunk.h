@@ -32,20 +32,14 @@ typedef enum {
     OP_TERNARY_FALSE,
 } OpCode;
 
-//typedef struct {
-//    int line;
-//    int start;
-//    int count;
-//} LineStart;
-
-typedef struct { //dynamic Array
+typedef struct {
     int count;
     int capacity;
     uint8_t *code;
-    int *lines; // line number to report error
+    int *lines;
     ValueArray constants;
-    int currentLine;  // the line number of the current instruction
-    int linesCapacity; // capacity of the lines array
+    int currentLine;
+    int linesCapacity;
 } Chunk;
 
 void initChunk(Chunk *chunk);
