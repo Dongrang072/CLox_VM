@@ -94,16 +94,16 @@ static InterpretResult run() {
         }while (false)
 
     for (;;) {
-//#ifdef DEBUG_TRACE_EXECUTION //플래그가 켜지면 vm이 실행하기 직전에 디스어셈블한 결과를 매번 동적으로 출력
-//        printf("          ");
-//        for (Value *slot = vm.stack; slot < vm.stackTop; slot++) {
-//            printf("[ ");
-//            printValue(*slot);
-//            printf(" ]");
-//        }
-//        printf("\n");
-//        disassembleInstruction(vm.chunk, (int) (vm.ip - vm.chunk->code));
-//#endif
+#ifdef DEBUG_TRACE_EXECUTION //플래그가 켜지면 vm이 실행하기 직전에 디스어셈블한 결과를 매번 동적으로 출력
+        printf("          ");
+        for (Value *slot = vm.stack; slot < vm.stackTop; slot++) {
+            printf("[ ");
+            printValue(*slot);
+            printf(" ]");
+        }
+        printf("\n");
+        disassembleInstruction(vm.chunk, (int) (vm.ip - vm.chunk->code));
+#endif
         uint8_t instruction;
         switch (instruction = READ_BYTE()) {
             case OP_CONSTANT: {
@@ -173,8 +173,6 @@ static InterpretResult run() {
                     runtimeError("Undefined variable '%s'.", name->chars);
                     return INTERPRET_RUNTIME_ERROR;
                 }
-                printValue(peek(0)); // 변수 값 출력
-                printf("\n");
                 break;
             }
             case OP_EQUAL: {
