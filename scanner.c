@@ -4,6 +4,7 @@ typedef struct {
     const char *start;
     const char *current;
     int line;
+    int interpolationDepth;
 } Scanner;
 
 Scanner scanner;
@@ -135,7 +136,19 @@ static TokenType identifierType() {
         case 'o':
             return checkKeyword(1, 1, "r", TOKEN_OR);
         case 'p':
-            return checkKeyword(1, 4, "rint", TOKEN_PRINT);
+            if (scanner.current - scanner.start > 1) {
+                switch (scanner.start[1]) {
+                    case 'r':
+                        if (scanner.current - scanner.start > 4) {
+                            if (scanner.start[5] == 'l' && scanner.start[6] == 'n') {
+                                return checkKeyword(1, 6, "rintln", TOKEN_PRINTLN);
+                            }
+                            return checkKeyword(1, 4, "rint", TOKEN_PRINT);
+                        }
+                        break;
+                }
+            }
+            break;
         case 'r':
             return checkKeyword(1, 5, "eturn", TOKEN_RETURN);
         case 's':
@@ -175,12 +188,25 @@ static Token number() {
 
 static Token string() {
     while (peek() != '"' && !isAtEnd()) {
-        if (peek() == '\n') scanner.line++;
+        if (peek() == '\n') {
+            scanner.line++;
+        } else if (peek() == '$' && peekNext() == '{') {
+            if (scanner.interpolationDepth >= UINT4_MAX) {
+                return errorToken("Interpolation may only nest 15 levels deep.");
+            }
+            scanner.interpolationDepth++;
+            advance(); // '$'를 건너뜀
+            Token token =makeToken(TOKEN_INTERPOLATION); // '${' 앞까지의 문자열을 토큰화하고 보간 토큰 생성
+            advance(); // '{'를 건너뜀
+
+            return token;
+        }
         advance();
     }
+
     if (isAtEnd()) return errorToken("Unterminated string.");
 
-    advance(); //닿는 큰따음표
+    advance(); // skip end '"'
     return makeToken(TOKEN_STRING);
 }
 
@@ -188,7 +214,6 @@ void initScanner(const char *source) {
     scanner.start = source;
     scanner.current = source;
     scanner.line = 1;
-
 }
 
 static bool isAlpha(char c) {
@@ -217,8 +242,13 @@ Token scanToken() {
             return makeToken(TOKEN_RIGHT_PAREN);
         case '{':
             return makeToken(TOKEN_LEFT_BRACE);
-        case '}':
+        case '}': {
+            if (scanner.interpolationDepth > 0) {
+                scanner.interpolationDepth--;
+                return string();
+            }
             return makeToken(TOKEN_RIGHT_BRACE);
+        }
         case ';':
             return makeToken(TOKEN_SEMICOLON);
         case ',':

@@ -74,6 +74,27 @@ static void concatenate() {
     push(OBJ_VAL(result));
 }
 
+static void toString(Value value) {
+    switch (value.type) {
+        case VAL_BOOL:
+            push(OBJ_VAL(copyString(value.as.boolean ? "true" : "false", value.as.boolean ? 4 : 5)));
+            break;
+        case VAL_NUMBER: {
+            char buffer[24];
+            int length = sprintf(buffer, "%g", value.as.number);
+            push(OBJ_VAL(copyString(buffer, length)));
+            break;
+        }
+        case VAL_OBJ:
+            // 객체의 toString 메소드 호출
+            push(OBJ_VAL(objToString(value.as.obj)));
+            break;
+        default:
+            push(OBJ_VAL(copyString("nil", 3)));
+            break;
+    }
+}
+
 static InterpretResult run() {
 #define READ_BYTE() (*vm.ip++) //bytecode dispatch
 #define READ_CONSTANT() (vm.chunk->constants.values[READ_BYTE()])
@@ -221,8 +242,16 @@ static InterpretResult run() {
                 break;
             case OP_PRINT:
                 printValue(pop());
+                break;
+            case OP_PRINTLN:
+                printValue(pop());
                 printf("\n");
                 break;
+            case OP_TOSTRING:{
+                Value value = pop();
+                toString(value);
+                break;
+            }
             case OP_JUMP: {
                 uint16_t offset = READ_SHORT();
                 vm.ip +=offset;

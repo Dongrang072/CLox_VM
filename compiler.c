@@ -407,7 +407,7 @@ static void conditional(bool canAssign) {
 
     patchJump(thenJump);
     emitByte(OP_POP);
-    consume(TOKEN_COLON, "Expect ':' after then branch of conditional   operator.");
+    consume(TOKEN_COLON, "Expect ':' after then branch of conditional operator.");
 
     //else branch
     parsePrecedence(PREC_ASSIGNMENT);
@@ -425,9 +425,45 @@ static void or_(bool canAssign) {
     patchJump(endJump);
 }
 
+static void interpolation(bool canAssign);
+
 static void string(bool canAssign) {
     emitConstant(OBJ_VAL(copyString(parser.previous.start + 1, parser.previous.length - 2))); // 전후 " 제거
+    while (match(TOKEN_INTERPOLATION)) {
+        emitByte(OP_ADD);
+        interpolation(canAssign);
+    }
+
 }
+
+static void interpolation(bool canAssign) {
+    int count = 0;
+    do {
+        bool concatenate = false;
+        bool isString = false;
+        if (parser.previous.length > 2) {
+            string(canAssign);
+            concatenate = true;
+            isString = true;
+            if (count > 0) emitByte(OP_ADD);
+        }
+
+        expression(); // 표현식 평가
+
+        emitByte(OP_TOSTRING);
+        if (concatenate || (count >= 1 && !isString)) {
+            emitByte(OP_ADD);
+        }
+        count++;
+    } while (match(TOKEN_INTERPOLATION));
+
+    consume(TOKEN_STRING, "Expect end of string interpolation.");
+    if (parser.previous.length > 2) {
+        string(canAssign);
+        emitByte(OP_ADD);
+    }
+}
+
 
 static void namedVariable(Token name, bool canAssign) {
     uint8_t getOp, setOp;
@@ -492,7 +528,9 @@ ParseRule rules[] = {
         [TOKEN_STAR] = {NULL, binary, PREC_FACTOR},
 
         [TOKEN_QUESTION] = {NULL, conditional, PREC_CONDITIONAL}, // 삼항 연산자
-        [TOKEN_COLON] = {NULL, NULL,PREC_NONE}, // 콜론 연산자
+        [TOKEN_COLON] = {NULL, NULL, PREC_NONE}, // 콜론 연산자
+
+        [TOKEN_INTERPOLATION] = {interpolation, NULL, PREC_NONE},
 
         [TOKEN_BANG] ={unary, NULL, PREC_NONE}, // NOT
         [TOKEN_BANG_EQUAL] ={NULL, binary, PREC_EQUALITY},
@@ -516,6 +554,7 @@ ParseRule rules[] = {
         [TOKEN_IF] ={NULL, NULL, PREC_NONE},
         [TOKEN_NIL] ={literal, NULL, PREC_NONE},
         [TOKEN_OR] ={NULL, or_, PREC_OR},
+        [TOKEN_PRINTLN] ={NULL, NULL, PREC_NONE},
         [TOKEN_PRINT] ={NULL, NULL, PREC_NONE},
         [TOKEN_RETURN] ={NULL, NULL, PREC_NONE},
         [TOKEN_SUPER] ={NULL, NULL, PREC_NONE},
@@ -651,6 +690,12 @@ static void ifStatement() {
     patchJump(elseJump);
 }
 
+static void printLineStatement() {
+    expression(); //print문은 표현식을 평가하고 그 결과를 출력함
+    consume(TOKEN_SEMICOLON, "Expect ';' after value.");
+    emitByte(OP_PRINTLN);
+}
+
 static void printStatement() {
     expression(); //print문은 표현식을 평가하고 그 결과를 출력함
     consume(TOKEN_SEMICOLON, "Expect ';' after value.");
@@ -685,7 +730,7 @@ static void synchronize() {
             case TOKEN_FOR:
             case TOKEN_IF:
             case TOKEN_WHILE:
-            case TOKEN_PRINT:
+            case TOKEN_PRINTLN:
             case TOKEN_RETURN:
                 return;
             default:
@@ -707,7 +752,9 @@ static void declaration() {
 }
 
 static void statement() {
-    if (match(TOKEN_PRINT)) {
+    if (match(TOKEN_PRINTLN)) {
+        printLineStatement();
+    } else if (match(TOKEN_PRINT)) {
         printStatement();
     } else if (match(TOKEN_FOR)) {
         forStatement();

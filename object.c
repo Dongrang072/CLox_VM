@@ -69,3 +69,15 @@ void printObject(Value value) {
             break;
     }
 }
+
+ObjString* objToString(Obj* obj) { //for string interpolation
+    switch (obj->type) {
+        case OBJ_STRING:
+            return AS_STRING(OBJ_VAL(obj));
+            //추후에 다른 객체 타입에 대해서도 추가
+        default:
+            return copyString("unknown", 7);
+    }
+}
+
+
