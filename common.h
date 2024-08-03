@@ -13,6 +13,7 @@
 
 #define UINT8_COUNT (UINT8_MAX + 1)
 #define UINT4_MAX 15
+#define MAX_CASES 256
 #define MAX_CONST_INDEX 16777216
 
 #endif //CLOX_COMMON_H

@@ -4,6 +4,7 @@
 #include "compiler.h"
 #include "scanner.h"
 #include "common.h"
+#include "memory.h"
 
 #ifdef DEBUG_PRINT_CODE
 
@@ -56,6 +57,9 @@ typedef struct {
 Parser parser;
 Compiler *current = NULL; //원칙적으로라면 Compiler 포인터를 받는 매개변수를 프론트엔드에 있는 각 매게 변수에 전달하겠지만....
 Chunk *compilingChunk;
+
+int innermostLoopStart = -1; // for continueStatement
+int innermostLoopScopeDepth = 0; // for breakStatement
 
 static Chunk *currentChunk() {
     return compilingChunk;
@@ -122,23 +126,6 @@ static void emitBytes(uint8_t byte1, uint8_t byte2) {
     emitByte(byte2);
 }
 
-static void emitLoop(int loopStart) {
-    emitByte(OP_LOOP);
-
-    int offset = currentChunk()->count - loopStart + 2;
-    if (offset > UINT16_MAX) error("Loop body too large.");
-
-    emitByte((offset >> 8) & 0xff);
-    emitByte(offset & 0xff);
-}
-
-static int emitJump(uint8_t instruction) {
-    emitByte(instruction);
-    emitByte(0xff);
-    emitByte(0xff);
-    return currentChunk()->count - 2;
-}
-
 static void emitReturn() {
     emitByte(OP_RETURN);
 }
@@ -166,6 +153,33 @@ static void emitConstant(Value value) {
     }
 }
 
+static void emitLoop(int loopStart) {
+    emitByte(OP_LOOP);
+
+    int offset = currentChunk()->count - loopStart + 2;
+    if (offset > UINT16_MAX) error("Loop body too large.");
+
+    emitByte((offset >> 8) & 0xff);
+    emitByte(offset & 0xff);
+}
+
+static int emitJump(uint8_t instruction) {
+    emitByte(instruction);   // 바이트 코드에 점프 명령어 추가. jump offset 피연산자는 2바이트를 사용함
+    emitByte(0xff);          // 16비트 크기의 임시 공간 확보, 일부러 큰 값을 추가하여 나중에 수정 가능.
+    emitByte(0xff);          //이것도 마찬가지.
+    return currentChunk()->count - 2; // 점프 명령어의 위치 반환.
+}
+
+static void patchJump(int offset) {
+    //점프 offset 자체를 보정하기 위해 바이트코드에서 2를 뺀다
+    int jump = currentChunk()->count - offset - 2;
+    if (jump > UINT16_MAX) { //16bit offset
+        error("Too much jump over.");
+    }
+    currentChunk()->code[offset] = (jump >> 8) & 0xff;
+    currentChunk()->code[offset + 1] = jump & 0xff;
+}
+
 //static uint8_t makeConstant(Value value) {
 //    int constant = addConstant(currentChunk(), value);
 //    if (constant > UINT8_MAX) {
@@ -191,16 +205,6 @@ static void emitConstant(Value value) {
 //        emitByte(index & 0xFF);
 //    }
 //}
-
-static void patchJump(int offset) {
-    //점프 offset 자체를 보정하기 위해 바이트코드에서 2를 뺀다
-    int jump = currentChunk()->count - offset - 2;
-    if (jump > UINT16_MAX) {
-        error("Too much jump over.");
-    }
-    currentChunk()->code[offset] = (jump >> 8) & 0xff;
-    currentChunk()->code[offset + 1] = jump & 0xff;
-}
 
 static void initCompiler(Compiler *compiler) {
     compiler->localCount = 0;
@@ -470,7 +474,7 @@ static void namedVariable(Token name, bool canAssign) {
     int arg = resolveLocal(current, &name);
     if (arg != -1) {
         if (current->locals[arg].isConst && canAssign && match(TOKEN_EQUAL)) {
-            error("Can not assign to 'const' variable.");
+            error("Can't assign to 'const' variable.");
         }
         getOp = OP_GET_LOCAL;
         setOp = OP_SET_LOCAL;
@@ -563,6 +567,11 @@ ParseRule rules[] = {
         [TOKEN_CONST] = {NULL, NULL, PREC_NONE},
         [TOKEN_LET] ={NULL, NULL, PREC_NONE},
         [TOKEN_WHILE] ={NULL, NULL, PREC_NONE},
+        [TOKEN_SWITCH] = {NULL, NULL, PREC_NONE},
+        [TOKEN_CASE] = {NULL, NULL, PREC_NONE},
+        [TOKEN_DEFAULT] = {NULL, NULL, PREC_NONE},
+        [TOKEN_CONTINUE] = {NULL, NULL, PREC_NONE},
+        [TOKEN_BREAK] = {NULL, NULL, PREC_NONE},
         [TOKEN_ERROR] ={NULL, NULL, PREC_NONE},
         [TOKEN_EOF] ={NULL, NULL, PREC_NONE},
 };
@@ -628,26 +637,31 @@ static void expressionStatement() {
 
 static void forStatement() {
     beginScope();
-    consume(TOKEN_LEFT_PAREN, "Expect '(' after 'for'.");
 
+    consume(TOKEN_LEFT_PAREN, "Expect '(' after 'for'.");
     if (match(TOKEN_SEMICOLON)) {
         //no initializer
     } else if (match(TOKEN_LET)) { // only let can be re-assigned
         varDeclaration(false);
     } else if (match(TOKEN_CONST)) {
-        error("'const' variables cannot be used in for loop initializer.");
+        varDeclaration(true);
     } else {
         expressionStatement();
     }
 
-    int loopStart = currentChunk()->count;
+    int surroundingLoopStart = innermostLoopStart;
+    int surroundingLoopScopeDepth = innermostLoopScopeDepth;
+    innermostLoopStart = currentChunk()->count;
+    innermostLoopScopeDepth = current->scopeDepth;
+    //for exit
     int exitJump = -1;
-
     if (!match(TOKEN_SEMICOLON)) {
         expression();
         consume(TOKEN_SEMICOLON, "Expect ';' after loop condition.");
+
+        // Jump out of the loop if the condition is false.
         exitJump = emitJump(OP_JUMP_IF_FALSE);
-        emitByte(OP_POP);
+        emitByte(OP_POP); // Condition.
     }
 
     if (!match(TOKEN_RIGHT_PAREN)) {
@@ -657,25 +671,27 @@ static void forStatement() {
         emitByte(OP_POP);
         consume(TOKEN_RIGHT_PAREN, "Expect ')' after for clauses.");
 
-        emitLoop(loopStart);
-        loopStart = incrementStart;
+        emitLoop(innermostLoopStart);
+        innermostLoopStart = incrementStart;
         patchJump(bodyJump);
     }
-
+    //for increment
     statement();
-    emitLoop(loopStart);
+    emitLoop(innermostLoopStart);
 
+    //exit jump
     if (exitJump != -1) {
         patchJump(exitJump);
-        emitByte(OP_POP); //condition
+        emitByte(OP_POP); // Condition.
     }
-
+    innermostLoopStart =surroundingLoopStart;
+    innermostLoopScopeDepth = surroundingLoopScopeDepth;
     endScope();
 }
 
 static void ifStatement() {
     consume(TOKEN_LEFT_PAREN, "Expect '(' after 'if.");
-    expression();
+    expression(); //런타임 조건값은 스택 맨 위에 남을 것이다
     consume(TOKEN_RIGHT_PAREN, "Expect ')' after 'if.");
 
     int thenJump = emitJump(OP_JUMP_IF_FALSE);
@@ -708,14 +724,96 @@ static void whileStatement() {
     expression();
     consume(TOKEN_RIGHT_PAREN, "Expect ')' after 'while'.");
 
-    int exitJump = emitJump(OP_JUMP_IF_FALSE);
+    int loopExitJump = emitJump(OP_JUMP_IF_FALSE);
     emitByte(OP_POP);
     statement();
-    emitLoop(loopStart);
+    emitByte(loopStart);
 
-    patchJump(exitJump);
+    patchJump(loopExitJump);
     emitByte(OP_POP);
 }
+
+static void switchStatement() {
+    consume(TOKEN_LEFT_PAREN, "Expect '(' after 'switch'.");
+    expression();
+    consume(TOKEN_RIGHT_PAREN, "Expect ')' after value.");
+    consume(TOKEN_LEFT_BRACE, "Expect '{' before switch cases.");
+
+    int state = 0; // 0: before any cases, 1: before default, 2: after default.
+    int caseEnds[MAX_CASES];
+    int caseCount = 0;
+    int previousCaseSkip = -1;
+
+    while (!match(TOKEN_RIGHT_BRACE) && !check(TOKEN_EOF)) {
+        if (match(TOKEN_CASE) || match(TOKEN_DEFAULT)) {
+            TokenType caseType = parser.previous.type;
+
+            if (state == 2) {
+                error("Can't have another case or default after the default case.");
+            }
+
+            if (state == 1) {
+                caseEnds[caseCount++] = emitJump(OP_JUMP);
+
+                patchJump(previousCaseSkip);
+                emitByte(OP_POP);
+            }
+
+            if (caseType == TOKEN_CASE) {
+                state = 1;
+
+                emitByte(OP_DUP); // if the case is equal to the value
+                expression();
+                consume(TOKEN_COLON, "Expect ':' after case value.");
+
+                emitByte(OP_EQUAL);
+                previousCaseSkip = emitJump(OP_JUMP_IF_FALSE);
+
+                emitByte(OP_POP);
+            } else {
+                state = 2;
+                consume(TOKEN_COLON, "Expect ':' after default.");
+                previousCaseSkip = -1;
+            }
+        } else {
+            if (state == 0) {
+                error("Can't have statements before any case.");
+            }
+            statement();
+        }
+    }
+
+    // ended without a default case
+    if (state == 1) {
+        patchJump(previousCaseSkip);
+        emitByte(OP_POP);
+    }
+
+    for (int i = 0; i < caseCount; i++) {
+        patchJump(caseEnds[i]);
+    }
+
+    emitByte(OP_POP);// pop the switch value
+}
+
+static void continueStatement() {
+    if (innermostLoopStart == -1) {
+        error("Can't use 'continue' outside of a loop.");
+    }
+    consume(TOKEN_SEMICOLON, "Expect ';' after 'continue'.");
+    for (int i = current->localCount - 1;
+         i >= 0 && current->locals[i].depth > innermostLoopScopeDepth;
+         i--) {
+        emitByte(OP_POP);
+    }
+
+    emitLoop(innermostLoopStart);
+}
+
+static void breakStatement() { //breakStatement -> "break" ";" ;
+    consume(TOKEN_SEMICOLON, "Expect ';' after 'break'.");
+}
+
 
 static void synchronize() {
     parser.panicMode = false;
@@ -762,7 +860,13 @@ static void statement() {
         ifStatement();
     } else if (match(TOKEN_WHILE)) {
         whileStatement();
-    } else if (match(TOKEN_LEFT_BRACE)) {
+    } else if (match(TOKEN_SWITCH)) {
+        switchStatement();
+    } else if (match(TOKEN_CONTINUE)) {
+        continueStatement();
+    } else if(match(TOKEN_BREAK)){
+        breakStatement();
+    }else if (match(TOKEN_LEFT_BRACE)) {
         beginScope();
         block();
         endScope();

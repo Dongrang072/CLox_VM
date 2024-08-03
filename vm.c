@@ -86,7 +86,7 @@ static void toString(Value value) {
             break;
         }
         case VAL_OBJ:
-            // 객체의 toString 메소드 호출
+            // 객체의 toString 메소드 호출 추후에 추가할 예정
             push(OBJ_VAL(objToString(value.as.obj)));
             break;
         default:
@@ -186,7 +186,7 @@ static InterpretResult run() {
                 ObjString *name = READ_STRING();
                 bool isConst = findEntry(vm.globals.entries, vm.globals.capacity, name)->isConst;
                 if (isConst) {
-                    runtimeError("Cannot assign to constant variable '%s'.", name->chars);
+                    runtimeError("Can't assign to constant variable '%s'.", name->chars);
                     return INTERPRET_RUNTIME_ERROR;
                 }
                 if (tableSet(&vm.globals, name, peek(0), isConst)) {
@@ -200,6 +200,10 @@ static InterpretResult run() {
                 Value b = pop();
                 Value a = pop();
                 push(BOOL_VAL(valuesEqual(a, b)));
+                break;
+            }
+            case OP_DUP: {
+                push(peek(0));
                 break;
             }
             case OP_GREATER:
@@ -247,19 +251,19 @@ static InterpretResult run() {
                 printValue(pop());
                 printf("\n");
                 break;
-            case OP_TOSTRING:{
+            case OP_TOSTRING: {
                 Value value = pop();
                 toString(value);
                 break;
             }
             case OP_JUMP: {
                 uint16_t offset = READ_SHORT();
-                vm.ip +=offset;
+                vm.ip += offset;
                 break;
             }
             case OP_JUMP_IF_FALSE: {
                 uint16_t offset = READ_SHORT();
-                if(isFalsey(peek(0))) vm.ip += offset;
+                if (isFalsey(peek(0))) vm.ip += offset;
                 break;
             }
             case OP_LOOP: {

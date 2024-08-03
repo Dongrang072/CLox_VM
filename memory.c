@@ -33,5 +33,27 @@ void freeObjects(){
     }
 }
 
+void initArray(Array *array, size_t type){
+    array->capacity =0;
+    array->count =0;
+    array->values =NULL;
+    array->type = type;
+}
+
+void writeArray(Array *array, void* value){
+    if(array->capacity < array->count +1){
+        int oldCapacity = array->capacity;
+        array->capacity= GROW_CAPACITY(oldCapacity);
+        array->values = GROW_ARRAY_FOR_TYPE_SIZE(array->type, array->values, oldCapacity, array->capacity);
+    }
+    memcpy(&((uint8_t*)array->values)[array->type * array->count], value, array->type);
+    array->count++;
+}
+
+void freeArray(Array *array){
+    FREE_ARRAY(uint8_t, array->values, array->capacity);
+    initArray(array, array->type);
+}
+
 //memory fragmentation에 대해서 어떤 조치를 취할 것인가
 

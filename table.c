@@ -1,4 +1,3 @@
-#include <stdlib.h>
 #include <string.h>
 
 #include "memory.h"
@@ -39,7 +38,6 @@ Entry *findEntry(Entry *entries, int capacity, ObjString *key) {
         }
         index = (index + 1) % capacity; //배열 끝을 넘어가면 두 번째 나머지 연산자가 처음으로 되돌린다.
     }
-
 }
 
 bool tableGet(Table* table, ObjString* key, Value* value){

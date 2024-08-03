@@ -4,6 +4,13 @@
 #include "common.h"
 #include "object.h"
 
+typedef struct {
+    int capacity;
+    int count;
+    void *values;
+    size_t type;
+} Array;
+
 #define ALLOCATE(type, count) \
     (type*)reallocate(NULL, 0, sizeof(type) * (count))
 
@@ -12,16 +19,25 @@
 #define GROW_CAPACITY(capacity) \
     ((capacity) < 8 ? 8 : (capacity) * 2)
 
-#define GROW_ARRAY(type, pointer, oldCount, newCount) \
-    (type*)reallocate((pointer), sizeof(type) * (oldCount), sizeof(type) * (newCount))
+#define GROW_ARRAY(type, pointer, oldCapacity, newCapacity) \
+    (type*)reallocate((pointer), sizeof(type) * (oldCapacity), sizeof(type) * (newCapacity))
 
-#define ZERO_INITIALIZE(type, pointer, oldLength, newLength) \
-    memset((pointer), 0, ((newLength) - (oldLength)) * sizeof(type))
+#define GROW_ARRAY_FOR_TYPE_SIZE(typeSize, pointer, oldCapacity, newCapacity) \
+    reallocate((pointer), (typeSize) * (oldCapacity), sizeof(typeSize) * (newCapacity))
 
 #define FREE_ARRAY(type, pointer, oldCount) \
     reallocate(pointer, sizeof(type) * (oldCount), 0)
 
-void* reallocate(void* pointer, size_t oldSize, size_t newSize);
+#define READ_AS(type, array, i) (((type*) (array)->values)[i])
+
+void *reallocate(void *pointer, size_t oldSize, size_t newSize);
+
 void freeObjects();
+
+void initArray(Array *array, size_t size);
+
+void writeArray(Array *array, void* value);
+
+void freeArray(Array *array);
 
 #endif //CLOX_MEMORY_H
