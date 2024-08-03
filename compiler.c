@@ -327,6 +327,12 @@ static void defineVariable(uint8_t global, bool isConst) {
         markInitialized(); //초기화됨을 확인
         return;
     }
+    Value dummy;
+    ObjString *name = AS_STRING(currentChunk()->constants.values[global]);
+
+    if (tableGet(&vm.globals, name, &dummy)) {
+        error("Variable already declared.");
+    }
 
     if (isConst) {
         emitBytes(OP_DEFINE_CONST_GLOBAL, global);

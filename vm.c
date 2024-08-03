@@ -172,13 +172,19 @@ static InterpretResult run() {
             case OP_DEFINE_CONST_GLOBAL: { //테이블에 키가 이미 있는지 확인은 하지 않는다.
                 //키가 이미 해시 테이블에 있는 경우 그냥 값을 덮어씌운다
                 ObjString *name = READ_STRING();
-                tableSet(&vm.globals, name, peek(0), true); //해시 테이블에 값을 추가할 때까지 값을 pop()하지 않는다
+                if (!tableSet(&vm.globals, name, peek(0), true)) {
+                    runtimeError("Variable '%s' already defined.", name->chars);
+                    return INTERPRET_RUNTIME_ERROR;
+                }
                 pop();
                 break;
             }
             case OP_DEFINE_LET_GLOBAL: {
                 ObjString *name = READ_STRING();
-                tableSet(&vm.globals, name, peek(0), false);
+                if (!tableSet(&vm.globals, name, peek(0), false)) {
+                    runtimeError("Variable '%s' already defined.", name->chars);
+                    return INTERPRET_RUNTIME_ERROR;
+                }
                 pop();
                 break;
             }
