@@ -370,6 +370,9 @@ static void binary(bool canAssign) {
         case TOKEN_SLASH:
             emitByte(OP_DIVIDE);
             break;
+        case TOKEN_PERCENT:
+            emitByte(OP_MODULO);
+            break;
         default:
             return;
     }
@@ -530,50 +533,50 @@ ParseRule rules[] = {
         [TOKEN_SEMICOLON] ={NULL, NULL, PREC_NONE},
         [TOKEN_SLASH] ={NULL, binary, PREC_FACTOR},
         [TOKEN_STAR] = {NULL, binary, PREC_FACTOR},
+        [TOKEN_PERCENT] = {NULL, binary, PREC_FACTOR},
+        [TOKEN_QUESTION] = { NULL, conditional, PREC_CONDITIONAL }, // 삼항 연산자
+        [TOKEN_COLON] = { NULL, NULL, PREC_NONE }, // 콜론 연산자
 
-        [TOKEN_QUESTION] = {NULL, conditional, PREC_CONDITIONAL}, // 삼항 연산자
-        [TOKEN_COLON] = {NULL, NULL, PREC_NONE}, // 콜론 연산자
+        [TOKEN_INTERPOLATION] = { interpolation, NULL, PREC_NONE },
 
-        [TOKEN_INTERPOLATION] = {interpolation, NULL, PREC_NONE},
+        [TOKEN_BANG] ={ unary, NULL, PREC_NONE }, // NOT
+        [TOKEN_BANG_EQUAL] ={ NULL, binary, PREC_EQUALITY },
+        [TOKEN_EQUAL] ={ NULL, NULL, PREC_NONE },
+        [TOKEN_EQUAL_EQUAL] ={ NULL, binary, PREC_EQUALITY },
+        [TOKEN_GREATER] ={ NULL, binary, PREC_COMPARISON },
+        [TOKEN_GREATER_EQUAL] ={ NULL, binary, PREC_COMPARISON },
+        [TOKEN_LESS] ={ NULL, binary, PREC_COMPARISON },
+        [TOKEN_LESS_EQUAL] ={ NULL, binary, PREC_COMPARISON },
 
-        [TOKEN_BANG] ={unary, NULL, PREC_NONE}, // NOT
-        [TOKEN_BANG_EQUAL] ={NULL, binary, PREC_EQUALITY},
-        [TOKEN_EQUAL] ={NULL, NULL, PREC_NONE},
-        [TOKEN_EQUAL_EQUAL] ={NULL, binary, PREC_EQUALITY},
-        [TOKEN_GREATER] ={NULL, binary, PREC_COMPARISON},
-        [TOKEN_GREATER_EQUAL] ={NULL, binary, PREC_COMPARISON},
-        [TOKEN_LESS] ={NULL, binary, PREC_COMPARISON},
-        [TOKEN_LESS_EQUAL] ={NULL, binary, PREC_COMPARISON},
+        [TOKEN_IDENTIFIER] ={ variable, NULL, PREC_NONE },
+        [TOKEN_STRING] ={ string, NULL, PREC_NONE },
+        [TOKEN_NUMBER] = { number, NULL, PREC_NONE },
 
-        [TOKEN_IDENTIFIER] ={variable, NULL, PREC_NONE},
-        [TOKEN_STRING] ={string, NULL, PREC_NONE},
-        [TOKEN_NUMBER] = {number, NULL, PREC_NONE},
-
-        [TOKEN_AND] ={NULL, and_, PREC_AND},
-        [TOKEN_CLASS] ={NULL, NULL, PREC_NONE},
-        [TOKEN_ELSE] ={NULL, NULL, PREC_NONE},
-        [TOKEN_FALSE] ={literal, NULL, PREC_NONE},
-        [TOKEN_FOR] ={NULL, NULL, PREC_NONE},
-        [TOKEN_FUN] ={NULL, NULL, PREC_NONE},
-        [TOKEN_IF] ={NULL, NULL, PREC_NONE},
-        [TOKEN_NIL] ={literal, NULL, PREC_NONE},
-        [TOKEN_OR] ={NULL, or_, PREC_OR},
-        [TOKEN_PRINTLN] ={NULL, NULL, PREC_NONE},
-        [TOKEN_PRINT] ={NULL, NULL, PREC_NONE},
-        [TOKEN_RETURN] ={NULL, NULL, PREC_NONE},
-        [TOKEN_SUPER] ={NULL, NULL, PREC_NONE},
-        [TOKEN_THIS] ={NULL, NULL, PREC_NONE},
-        [TOKEN_TRUE] ={literal, NULL, PREC_NONE},
-        [TOKEN_CONST] = {NULL, NULL, PREC_NONE},
-        [TOKEN_LET] ={NULL, NULL, PREC_NONE},
-        [TOKEN_WHILE] ={NULL, NULL, PREC_NONE},
-        [TOKEN_SWITCH] = {NULL, NULL, PREC_NONE},
-        [TOKEN_CASE] = {NULL, NULL, PREC_NONE},
-        [TOKEN_DEFAULT] = {NULL, NULL, PREC_NONE},
-        [TOKEN_CONTINUE] = {NULL, NULL, PREC_NONE},
-        [TOKEN_BREAK] = {NULL, NULL, PREC_NONE},
-        [TOKEN_ERROR] ={NULL, NULL, PREC_NONE},
-        [TOKEN_EOF] ={NULL, NULL, PREC_NONE},
+        [TOKEN_AND] ={ NULL, and_, PREC_AND },
+        [TOKEN_CLASS] ={ NULL, NULL, PREC_NONE },
+        [TOKEN_ELSE] ={ NULL, NULL, PREC_NONE },
+        [TOKEN_FALSE] ={ literal, NULL, PREC_NONE },
+        [TOKEN_FOR] ={ NULL, NULL, PREC_NONE },
+        [TOKEN_FUN] ={ NULL, NULL, PREC_NONE },
+        [TOKEN_IF] ={ NULL, NULL, PREC_NONE },
+        [TOKEN_NIL] ={ literal, NULL, PREC_NONE },
+        [TOKEN_OR] ={ NULL, or_, PREC_OR },
+        [TOKEN_PRINTLN] ={ NULL, NULL, PREC_NONE },
+        [TOKEN_PRINT] ={ NULL, NULL, PREC_NONE },
+        [TOKEN_RETURN] ={ NULL, NULL, PREC_NONE },
+        [TOKEN_SUPER] ={ NULL, NULL, PREC_NONE },
+        [TOKEN_THIS] ={ NULL, NULL, PREC_NONE },
+        [TOKEN_TRUE] ={ literal, NULL, PREC_NONE },
+        [TOKEN_CONST] = { NULL, NULL, PREC_NONE },
+        [TOKEN_LET] ={ NULL, NULL, PREC_NONE },
+        [TOKEN_WHILE] ={ NULL, NULL, PREC_NONE },
+        [TOKEN_SWITCH] = { NULL, NULL, PREC_NONE },
+        [TOKEN_CASE] = { NULL, NULL, PREC_NONE },
+        [TOKEN_DEFAULT] = { NULL, NULL, PREC_NONE },
+        [TOKEN_CONTINUE] = { NULL, NULL, PREC_NONE },
+        [TOKEN_BREAK] = { NULL, NULL, PREC_NONE },
+        [TOKEN_ERROR] ={ NULL, NULL, PREC_NONE },
+        [TOKEN_EOF] ={ NULL, NULL, PREC_NONE },
 };
 
 static void parsePrecedence(Precedence precedence) { //Pratt Parser
@@ -675,7 +678,7 @@ static void forStatement() {
         innermostLoopStart = incrementStart;
         patchJump(bodyJump);
     }
-    //for increment
+    //increment
     statement();
     emitLoop(innermostLoopStart);
 
@@ -684,7 +687,7 @@ static void forStatement() {
         patchJump(exitJump);
         emitByte(OP_POP); // Condition.
     }
-    innermostLoopStart =surroundingLoopStart;
+    innermostLoopStart = surroundingLoopStart;
     innermostLoopScopeDepth = surroundingLoopScopeDepth;
     endScope();
 }
@@ -719,7 +722,11 @@ static void printStatement() {
 }
 
 static void whileStatement() {
-    int loopStart = currentChunk()->count;
+    int surroundingLoopStart = innermostLoopStart;
+    int surroundingLoopScopeDepth = innermostLoopScopeDepth;
+    innermostLoopStart = currentChunk()->count;
+    innermostLoopScopeDepth = current->scopeDepth;
+
     consume(TOKEN_LEFT_PAREN, "Expect '(' after 'while'.");
     expression();
     consume(TOKEN_RIGHT_PAREN, "Expect ')' after 'while'.");
@@ -727,10 +734,13 @@ static void whileStatement() {
     int loopExitJump = emitJump(OP_JUMP_IF_FALSE);
     emitByte(OP_POP);
     statement();
-    emitByte(loopStart);
+    emitByte(innermostLoopStart);
 
     patchJump(loopExitJump);
     emitByte(OP_POP);
+
+    innermostLoopStart = surroundingLoopStart;
+    innermostLoopScopeDepth = surroundingLoopScopeDepth;
 }
 
 static void switchStatement() {
@@ -864,9 +874,9 @@ static void statement() {
         switchStatement();
     } else if (match(TOKEN_CONTINUE)) {
         continueStatement();
-    } else if(match(TOKEN_BREAK)){
+    } else if (match(TOKEN_BREAK)) {
         breakStatement();
-    }else if (match(TOKEN_LEFT_BRACE)) {
+    } else if (match(TOKEN_LEFT_BRACE)) {
         beginScope();
         block();
         endScope();

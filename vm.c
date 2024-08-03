@@ -1,6 +1,7 @@
 #include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
+#include <math.h>
 
 #include "vm.h"
 #include "common.h"
@@ -102,7 +103,6 @@ static InterpretResult run() {
     (vm.ip +=2, (uint16_t)((vm.ip[-2] << 8) | vm.ip[-1]))
 #define READ_CONSTANT_LONG() (vm.chunk->constants.values[(READ_BYTE() << 16) | (READ_BYTE() << 8) | READ_BYTE()])
 #define READ_STRING() AS_STRING(READ_CONSTANT())
-#define READ_IS_CONST() (READ_BYTE() == OP_TRUE) // OP_TRUE or OP_FALSE
 #define BINARY_OP(valueType, op) \
     do{\
         if(!IS_NUMBER(peek(0)) || !IS_NUMBER(peek(1))) { \
@@ -234,6 +234,16 @@ static InterpretResult run() {
             case OP_DIVIDE:
                 BINARY_OP(NUMBER_VAL, /);
                 break;
+            case OP_MODULO: {
+                if(!IS_NUMBER(peek(0)) || !IS_NUMBER(peek(1))) {
+                    runtimeError("Operand must be a number");
+                    return INTERPRET_RUNTIME_ERROR;
+                }
+                double b = AS_NUMBER(pop());
+                double a = AS_NUMBER(pop());
+                push(NUMBER_VAL(fmod(a, b)));
+                break;
+            }
             case OP_NOT:
                 push(BOOL_VAL(isFalsey(pop())));
                 break;
