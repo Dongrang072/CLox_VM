@@ -202,8 +202,10 @@ static InterpretResult run() {
                 push(BOOL_VAL(valuesEqual(a, b)));
                 break;
             }
-            case OP_DUP: {
-                push(peek(0));
+            case OP_EQUAL_PRESERVE: {
+                Value b = pop();
+                Value a = peek(0);
+                push(BOOL_VAL(valuesEqual(a, b)));
                 break;
             }
             case OP_GREATER:

@@ -52,14 +52,22 @@ typedef struct {
     Local locals[UINT8_COUNT];
     int localCount; //스코프에 있는 지역 변수의 개수(사용중인 배열 슬롯의 개수) 추적
     int scopeDepth; //'컴파일중인' 현재 코드의 비트를 둘러싼 블록의 개수
+    int unpatchedBreaks;
 } Compiler;
+
+typedef struct Loop {
+    struct Loop *enclosing;
+    int continueOffset;
+    int unpatchedBreakJumps;
+} Loop;
+
 
 Parser parser;
 Compiler *current = NULL; //원칙적으로라면 Compiler 포인터를 받는 매개변수를 프론트엔드에 있는 각 매게 변수에 전달하겠지만....
 Chunk *compilingChunk;
 
-int innermostLoopStart = -1; // for continueStatement
-int innermostLoopScopeDepth = 0; // for breakStatement
+Loop *currentLoop = NULL;
+Array unpatchedBreaks;
 
 static Chunk *currentChunk() {
     return compilingChunk;
@@ -210,10 +218,13 @@ static void initCompiler(Compiler *compiler) {
     compiler->localCount = 0;
     compiler->scopeDepth = 0;
     current = compiler;
+    compiler->unpatchedBreaks = 0;
+    initArray(&unpatchedBreaks, sizeof(int));
 }
 
 static void endCompiler() {
     emitReturn();
+    freeArray(&unpatchedBreaks);
 #ifdef DEBUG_PRINT_CODE
     if (!parser.hadError) {
         disassembleChunk(currentChunk(), "code");
@@ -534,49 +545,49 @@ ParseRule rules[] = {
         [TOKEN_SLASH] ={NULL, binary, PREC_FACTOR},
         [TOKEN_STAR] = {NULL, binary, PREC_FACTOR},
         [TOKEN_PERCENT] = {NULL, binary, PREC_FACTOR},
-        [TOKEN_QUESTION] = { NULL, conditional, PREC_CONDITIONAL }, // 삼항 연산자
-        [TOKEN_COLON] = { NULL, NULL, PREC_NONE }, // 콜론 연산자
+        [TOKEN_QUESTION] = {NULL, conditional, PREC_CONDITIONAL}, // 삼항 연산자
+        [TOKEN_COLON] = {NULL, NULL, PREC_NONE}, // 콜론 연산자
 
-        [TOKEN_INTERPOLATION] = { interpolation, NULL, PREC_NONE },
+        [TOKEN_INTERPOLATION] = {interpolation, NULL, PREC_NONE},
 
-        [TOKEN_BANG] ={ unary, NULL, PREC_NONE }, // NOT
-        [TOKEN_BANG_EQUAL] ={ NULL, binary, PREC_EQUALITY },
-        [TOKEN_EQUAL] ={ NULL, NULL, PREC_NONE },
-        [TOKEN_EQUAL_EQUAL] ={ NULL, binary, PREC_EQUALITY },
-        [TOKEN_GREATER] ={ NULL, binary, PREC_COMPARISON },
-        [TOKEN_GREATER_EQUAL] ={ NULL, binary, PREC_COMPARISON },
-        [TOKEN_LESS] ={ NULL, binary, PREC_COMPARISON },
-        [TOKEN_LESS_EQUAL] ={ NULL, binary, PREC_COMPARISON },
+        [TOKEN_BANG] ={unary, NULL, PREC_NONE}, // NOT
+        [TOKEN_BANG_EQUAL] ={NULL, binary, PREC_EQUALITY},
+        [TOKEN_EQUAL] ={NULL, NULL, PREC_NONE},
+        [TOKEN_EQUAL_EQUAL] ={NULL, binary, PREC_EQUALITY},
+        [TOKEN_GREATER] ={NULL, binary, PREC_COMPARISON},
+        [TOKEN_GREATER_EQUAL] ={NULL, binary, PREC_COMPARISON},
+        [TOKEN_LESS] ={NULL, binary, PREC_COMPARISON},
+        [TOKEN_LESS_EQUAL] ={NULL, binary, PREC_COMPARISON},
 
-        [TOKEN_IDENTIFIER] ={ variable, NULL, PREC_NONE },
-        [TOKEN_STRING] ={ string, NULL, PREC_NONE },
-        [TOKEN_NUMBER] = { number, NULL, PREC_NONE },
+        [TOKEN_IDENTIFIER] ={variable, NULL, PREC_NONE},
+        [TOKEN_STRING] ={string, NULL, PREC_NONE},
+        [TOKEN_NUMBER] = {number, NULL, PREC_NONE},
 
-        [TOKEN_AND] ={ NULL, and_, PREC_AND },
-        [TOKEN_CLASS] ={ NULL, NULL, PREC_NONE },
-        [TOKEN_ELSE] ={ NULL, NULL, PREC_NONE },
-        [TOKEN_FALSE] ={ literal, NULL, PREC_NONE },
-        [TOKEN_FOR] ={ NULL, NULL, PREC_NONE },
-        [TOKEN_FUN] ={ NULL, NULL, PREC_NONE },
-        [TOKEN_IF] ={ NULL, NULL, PREC_NONE },
-        [TOKEN_NIL] ={ literal, NULL, PREC_NONE },
-        [TOKEN_OR] ={ NULL, or_, PREC_OR },
-        [TOKEN_PRINTLN] ={ NULL, NULL, PREC_NONE },
-        [TOKEN_PRINT] ={ NULL, NULL, PREC_NONE },
-        [TOKEN_RETURN] ={ NULL, NULL, PREC_NONE },
-        [TOKEN_SUPER] ={ NULL, NULL, PREC_NONE },
-        [TOKEN_THIS] ={ NULL, NULL, PREC_NONE },
-        [TOKEN_TRUE] ={ literal, NULL, PREC_NONE },
-        [TOKEN_CONST] = { NULL, NULL, PREC_NONE },
-        [TOKEN_LET] ={ NULL, NULL, PREC_NONE },
-        [TOKEN_WHILE] ={ NULL, NULL, PREC_NONE },
-        [TOKEN_SWITCH] = { NULL, NULL, PREC_NONE },
-        [TOKEN_CASE] = { NULL, NULL, PREC_NONE },
-        [TOKEN_DEFAULT] = { NULL, NULL, PREC_NONE },
-        [TOKEN_CONTINUE] = { NULL, NULL, PREC_NONE },
-        [TOKEN_BREAK] = { NULL, NULL, PREC_NONE },
-        [TOKEN_ERROR] ={ NULL, NULL, PREC_NONE },
-        [TOKEN_EOF] ={ NULL, NULL, PREC_NONE },
+        [TOKEN_AND] ={NULL, and_, PREC_AND},
+        [TOKEN_CLASS] ={NULL, NULL, PREC_NONE},
+        [TOKEN_ELSE] ={NULL, NULL, PREC_NONE},
+        [TOKEN_FALSE] ={literal, NULL, PREC_NONE},
+        [TOKEN_FOR] ={NULL, NULL, PREC_NONE},
+        [TOKEN_FUN] ={NULL, NULL, PREC_NONE},
+        [TOKEN_IF] ={NULL, NULL, PREC_NONE},
+        [TOKEN_NIL] ={literal, NULL, PREC_NONE},
+        [TOKEN_OR] ={NULL, or_, PREC_OR},
+        [TOKEN_PRINTLN] ={NULL, NULL, PREC_NONE},
+        [TOKEN_PRINT] ={NULL, NULL, PREC_NONE},
+        [TOKEN_RETURN] ={NULL, NULL, PREC_NONE},
+        [TOKEN_SUPER] ={NULL, NULL, PREC_NONE},
+        [TOKEN_THIS] ={NULL, NULL, PREC_NONE},
+        [TOKEN_TRUE] ={literal, NULL, PREC_NONE},
+        [TOKEN_CONST] = {NULL, NULL, PREC_NONE},
+        [TOKEN_LET] ={NULL, NULL, PREC_NONE},
+        [TOKEN_WHILE] ={NULL, NULL, PREC_NONE},
+        [TOKEN_SWITCH] = {NULL, NULL, PREC_NONE},
+        [TOKEN_CASE] = {NULL, NULL, PREC_NONE},
+        [TOKEN_DEFAULT] = {NULL, NULL, PREC_NONE},
+        [TOKEN_CONTINUE] = {NULL, NULL, PREC_NONE},
+        [TOKEN_BREAK] = {NULL, NULL, PREC_NONE},
+        [TOKEN_ERROR] ={NULL, NULL, PREC_NONE},
+        [TOKEN_EOF] ={NULL, NULL, PREC_NONE},
 };
 
 static void parsePrecedence(Precedence precedence) { //Pratt Parser
@@ -651,11 +662,7 @@ static void forStatement() {
     } else {
         expressionStatement();
     }
-
-    int surroundingLoopStart = innermostLoopStart;
-    int surroundingLoopScopeDepth = innermostLoopScopeDepth;
-    innermostLoopStart = currentChunk()->count;
-    innermostLoopScopeDepth = current->scopeDepth;
+    int loopStart = currentChunk()->count;
     //for exit
     int exitJump = -1;
     if (!match(TOKEN_SEMICOLON)) {
@@ -674,21 +681,33 @@ static void forStatement() {
         emitByte(OP_POP);
         consume(TOKEN_RIGHT_PAREN, "Expect ')' after for clauses.");
 
-        emitLoop(innermostLoopStart);
-        innermostLoopStart = incrementStart;
+        emitLoop(loopStart);
+        loopStart = incrementStart;
         patchJump(bodyJump);
     }
-    //increment
-    statement();
-    emitLoop(innermostLoopStart);
+    Loop loop = {
+            .enclosing = currentLoop,
+            .continueOffset = loopStart,
+            .unpatchedBreakJumps =0,
+    };
+    currentLoop = &loop;
+    statement();  //increment
+    emitLoop(loopStart);
+
+    int breakStatementsToBePatched = loop.unpatchedBreakJumps;
+    current->unpatchedBreaks -= breakStatementsToBePatched;
+    currentLoop = loop.enclosing;
 
     //exit jump
     if (exitJump != -1) {
         patchJump(exitJump);
         emitByte(OP_POP); // Condition.
     }
-    innermostLoopStart = surroundingLoopStart;
-    innermostLoopScopeDepth = surroundingLoopScopeDepth;
+
+    for (int i = unpatchedBreaks.count - breakStatementsToBePatched; i < unpatchedBreaks.count; i++) {
+        patchJump(READ_AS(int, &unpatchedBreaks, i));
+    }
+    unpatchedBreaks.count -= breakStatementsToBePatched;
     endScope();
 }
 
@@ -722,106 +741,96 @@ static void printStatement() {
 }
 
 static void whileStatement() {
-    int surroundingLoopStart = innermostLoopStart;
-    int surroundingLoopScopeDepth = innermostLoopScopeDepth;
-    innermostLoopStart = currentChunk()->count;
-    innermostLoopScopeDepth = current->scopeDepth;
-
+    int loopStart = currentChunk()->count;
     consume(TOKEN_LEFT_PAREN, "Expect '(' after 'while'.");
     expression();
     consume(TOKEN_RIGHT_PAREN, "Expect ')' after 'while'.");
 
     int loopExitJump = emitJump(OP_JUMP_IF_FALSE);
-    emitByte(OP_POP);
+    Loop loop = {
+            .enclosing = currentLoop,
+            .continueOffset = loopStart,
+            .unpatchedBreakJumps =0,
+    };
+    currentLoop = &loop;
     statement();
-    emitByte(innermostLoopStart);
 
+    int breakStatementsToBePatched = loop.unpatchedBreakJumps;
+    current->unpatchedBreaks -= breakStatementsToBePatched;
+    currentLoop = loop.enclosing;
+
+    emitLoop(loopStart);
     patchJump(loopExitJump);
     emitByte(OP_POP);
 
-    innermostLoopStart = surroundingLoopStart;
-    innermostLoopScopeDepth = surroundingLoopScopeDepth;
+    for (int i = unpatchedBreaks.count - breakStatementsToBePatched; i < unpatchedBreaks.count; i++) {
+        patchJump(READ_AS(int, &unpatchedBreaks, i));
+    }
+    unpatchedBreaks.count -= breakStatementsToBePatched;
 }
 
 static void switchStatement() {
     consume(TOKEN_LEFT_PAREN, "Expect '(' after 'switch'.");
-    expression();
-    consume(TOKEN_RIGHT_PAREN, "Expect ')' after value.");
-    consume(TOKEN_LEFT_BRACE, "Expect '{' before switch cases.");
+    expression(); // Expression to switch over
+    consume(TOKEN_RIGHT_PAREN, "Expect ')' after switch expression.");
+    consume(TOKEN_LEFT_BRACE, "Expect '{' after ')'.");
 
-    int state = 0; // 0: before any cases, 1: before default, 2: after default.
-    int caseEnds[MAX_CASES];
-    int caseCount = 0;
-    int previousCaseSkip = -1;
+    Array caseExitJumps;
+    initArray(&caseExitJumps, sizeof(int));
 
-    while (!match(TOKEN_RIGHT_BRACE) && !check(TOKEN_EOF)) {
-        if (match(TOKEN_CASE) || match(TOKEN_DEFAULT)) {
-            TokenType caseType = parser.previous.type;
-
-            if (state == 2) {
-                error("Can't have another case or default after the default case.");
-            }
-
-            if (state == 1) {
-                caseEnds[caseCount++] = emitJump(OP_JUMP);
-
-                patchJump(previousCaseSkip);
-                emitByte(OP_POP);
-            }
-
-            if (caseType == TOKEN_CASE) {
-                state = 1;
-
-                emitByte(OP_DUP); // if the case is equal to the value
-                expression();
-                consume(TOKEN_COLON, "Expect ':' after case value.");
-
-                emitByte(OP_EQUAL);
-                previousCaseSkip = emitJump(OP_JUMP_IF_FALSE);
-
-                emitByte(OP_POP);
-            } else {
-                state = 2;
-                consume(TOKEN_COLON, "Expect ':' after default.");
-                previousCaseSkip = -1;
-            }
-        } else {
-            if (state == 0) {
-                error("Can't have statements before any case.");
-            }
-            statement();
-        }
+    while (match(TOKEN_CASE)) {
+        expression(); // The case expression to compare to the main switch expression.
+        emitByte(OP_EQUAL_PRESERVE);
+        int nextCaseJump = emitJump(OP_JUMP_IF_FALSE);
+        emitByte(OP_POP); // Pop the result of the equality check
+        emitByte(OP_POP); // Pop the switch statement expression
+        consume(TOKEN_COLON, "Expect ':' after case expression.");
+        statement(); // The body of the case statement to run if true
+        int exitJump = emitJump(OP_JUMP);
+        writeArray(&caseExitJumps, &exitJump);
+        // If the case does not match, jump over the case body.
+        patchJump(nextCaseJump);
+        emitByte(OP_POP); // Pop the result of the equality check
     }
 
-    // ended without a default case
-    if (state == 1) {
-        patchJump(previousCaseSkip);
-        emitByte(OP_POP);
+    int defaultCaseExitJump = -1;
+    if (match(TOKEN_DEFAULT)) {
+        emitByte(OP_POP); // Pop the switch statement expression
+        consume(TOKEN_COLON, "Expect ':' after 'default'.");
+        statement(); // The body of the default case statement
+        defaultCaseExitJump = emitJump(OP_JUMP); // Jump over the fallthrough OP_POP instruction
     }
 
-    for (int i = 0; i < caseCount; i++) {
-        patchJump(caseEnds[i]);
+    // For the switch statement expression
+    emitByte(OP_POP);
+    if (defaultCaseExitJump != -1) patchJump(defaultCaseExitJump);
+
+    for (int i = 0; i < caseExitJumps.count; i++) {
+        patchJump(READ_AS(int, &caseExitJumps, i));
     }
 
-    emitByte(OP_POP);// pop the switch value
+    freeArray(&caseExitJumps);
+
+    consume(TOKEN_RIGHT_BRACE, "Expect '}' after switch statement.");
 }
 
 static void continueStatement() {
-    if (innermostLoopStart == -1) {
+    consume(TOKEN_SEMICOLON, "Expect ';' after 'continue'.");
+    if (currentLoop == NULL) {
         error("Can't use 'continue' outside of a loop.");
     }
-    consume(TOKEN_SEMICOLON, "Expect ';' after 'continue'.");
-    for (int i = current->localCount - 1;
-         i >= 0 && current->locals[i].depth > innermostLoopScopeDepth;
-         i--) {
-        emitByte(OP_POP);
-    }
-
-    emitLoop(innermostLoopStart);
+    emitLoop(currentLoop->continueOffset);
 }
 
 static void breakStatement() { //breakStatement -> "break" ";" ;
     consume(TOKEN_SEMICOLON, "Expect ';' after 'break'.");
+    if (currentLoop == NULL) {
+        error("Can't use 'break' outside of a loop.");
+    }
+    int loopExitJump = emitJump(OP_JUMP);
+    writeArray(&unpatchedBreaks, &loopExitJump);
+    currentLoop->unpatchedBreakJumps += 1;
+    current->unpatchedBreaks += 1;
 }
 
 
