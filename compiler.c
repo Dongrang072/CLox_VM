@@ -19,22 +19,23 @@ typedef struct {
     bool panicMode;
 } Parser;
 
-typedef enum { //우선순위에 따라 크고 작음을 다룸
+typedef enum {
+    //우선순위에 따라 크고 작음을 다룸
     PREC_NONE,
     PREC_ASSIGNMENT, // =
     PREC_CONDITIONAL, // a ? b : c ternary()
-    PREC_OR,         //or
-    PREC_AND,        // and
-    PREC_EQUALITY,   // == !=
+    PREC_OR, //or
+    PREC_AND, // and
+    PREC_EQUALITY, // == !=
     PREC_COMPARISON, // < > <= >=
-    PREC_TERM,       // + -
-    PREC_FACTOR,     // * /
-    PREC_UNARY,      // ! -
-    PREC_CALL,       // . ()
+    PREC_TERM, // + -
+    PREC_FACTOR, // * /
+    PREC_UNARY, // ! -
+    PREC_CALL, // . ()
     PREC_PRIMARY
 } Precedence;
 
-typedef void(*ParseFn)(bool canAssgin);
+typedef void (*ParseFn)(bool canAssgin);
 
 typedef struct {
     ParseFn prefix;
@@ -48,7 +49,15 @@ typedef struct {
     bool isConst; //const  추가
 } Local;
 
-typedef struct {
+typedef enum {
+    TYPE_FUNCTION,
+    TYPE_SCRIPT,
+} FunctionType;
+
+typedef struct Compiler{
+    struct Compiler *enclosing;
+    ObjFunction *function;
+    FunctionType type;
     Local locals[UINT8_COUNT];
     int localCount; //스코프에 있는 지역 변수의 개수(사용중인 배열 슬롯의 개수) 추적
     int scopeDepth; //'컴파일중인' 현재 코드의 비트를 둘러싼 블록의 개수
@@ -70,7 +79,8 @@ Loop *currentLoop = NULL;
 Array unpatchedBreaks;
 
 static Chunk *currentChunk() {
-    return compilingChunk;
+    //현재 chunk는 항상 컴파일 중인 함수가 소유한 chunk
+    return &current->function->chunk;
 }
 
 static void errorAt(Token *token, const char *message) {
@@ -125,7 +135,8 @@ static bool match(TokenType type) {
     return true;
 }
 
-static void emitByte(uint8_t byte) { //chunk에 1바이트 추가
+static void emitByte(uint8_t byte) {
+    //chunk에 1바이트 추가
     writeChunk(currentChunk(), byte, parser.previous.line);
 }
 
@@ -135,12 +146,14 @@ static void emitBytes(uint8_t byte1, uint8_t byte2) {
 }
 
 static void emitReturn() {
+    emitByte(OP_NIL);
     emitByte(OP_RETURN);
 }
 
 static int makeConstant(Value value) {
     int constant = addConstant(currentChunk(), value);
-    if (constant > 0xFFFFFF) { // OP_CONSTANT_LONG 명령어는 인덱스 피연산자로 3바이트를 사용함으로 최대 2^24-1 상수까지 저장/로드 가능
+    if (constant > 0xFFFFFF) {
+        // OP_CONSTANT_LONG 명령어는 인덱스 피연산자로 3바이트를 사용함으로 최대 2^24-1 상수까지 저장/로드 가능
         error("Too many constants in one chunk.");
         return 0;
     }
@@ -172,16 +185,17 @@ static void emitLoop(int loopStart) {
 }
 
 static int emitJump(uint8_t instruction) {
-    emitByte(instruction);   // 바이트 코드에 점프 명령어 추가. jump offset 피연산자는 2바이트를 사용함
-    emitByte(0xff);          // 16비트 크기의 임시 공간 확보, 일부러 큰 값을 추가하여 나중에 수정 가능.
-    emitByte(0xff);          //이것도 마찬가지.
+    emitByte(instruction); // 바이트 코드에 점프 명령어 추가. jump offset 피연산자는 2바이트를 사용함
+    emitByte(0xff); // 16비트 크기의 임시 공간 확보, 일부러 큰 값을 추가하여 나중에 수정 가능.
+    emitByte(0xff); //이것도 마찬가지.
     return currentChunk()->count - 2; // 점프 명령어의 위치 반환.
 }
 
 static void patchJump(int offset) {
     //점프 offset 자체를 보정하기 위해 바이트코드에서 2를 뺀다
     int jump = currentChunk()->count - offset - 2;
-    if (jump > UINT16_MAX) { //16bit offset
+    if (jump > UINT16_MAX) {
+        //16bit offset
         error("Too much jump over.");
     }
     currentChunk()->code[offset] = (jump >> 8) & 0xff;
@@ -214,22 +228,45 @@ static void patchJump(int offset) {
 //    }
 //}
 
-static void initCompiler(Compiler *compiler) {
+static void initCompiler(Compiler *compiler, FunctionType type) {
+    compiler->enclosing = current; //나중에 타입 명시하기
+    compiler->function = NULL; //후에 gc 추가를 위해서 NULL로 초기화
+    compiler->type = type;
     compiler->localCount = 0;
     compiler->scopeDepth = 0;
+    compiler->function = newFunction(); //컴파일 타임에 ObjFunction 생성
     current = compiler;
     compiler->unpatchedBreaks = 0;
-    initArray(&unpatchedBreaks, sizeof(int));
+
+
+    if (type != TYPE_SCRIPT) {
+        current->function->name = copyString(parser.previous.start, parser.previous.length);
+    } else {
+        initArray(&unpatchedBreaks, sizeof(int));
+    }
+
+    Local *local = &current->locals[current->localCount++];
+    local->depth = 0;
+    local->name.start = "";
+    local->name.length = 0;
 }
 
-static void endCompiler() {
+static ObjFunction *endCompiler() {
     emitReturn();
     freeArray(&unpatchedBreaks);
+    ObjFunction *function = current->function;
+    if (current->type == TYPE_SCRIPT) {
+        freeArray(&unpatchedBreaks);
+    }
 #ifdef DEBUG_PRINT_CODE
     if (!parser.hadError) {
-        disassembleChunk(currentChunk(), "code");
+        disassembleChunk(currentChunk(), function->name != NULL
+                                             ? function->name->chars
+                                             : "<script>");
     }
 #endif
+    current = current->enclosing;
+    return function;
 }
 
 static void beginScope() {
@@ -269,7 +306,8 @@ static int resolveLocal(Compiler *compiler, Token *name) {
     for (int i = compiler->localCount - 1; i >= 0; i--) {
         Local *local = &(compiler->locals[i]);
         if (identifiersEqual(name, &local->name)) {
-            if (local->depth == -1) { //스코프의 깊이가 -1이면 변수 초기자 안에서 해당 변수를 참조한 것
+            if (local->depth == -1) {
+                //스코프의 깊이가 -1이면 변수 초기자 안에서 해당 변수를 참조한 것
                 error("Can't read local variable in its own initializer.");
             }
             return i;
@@ -280,7 +318,8 @@ static int resolveLocal(Compiler *compiler, Token *name) {
 
 
 static void addLocal(Token name, bool isConst) {
-    if (current->localCount == UINT8_COUNT) { //VM은 스코프에 최대 256개의 지역 변수까지만 지원함
+    if (current->localCount == UINT8_COUNT) {
+        //VM은 스코프에 최대 256개의 지역 변수까지만 지원함
         error("Too many local variables in function.");
         return;
     }
@@ -318,6 +357,7 @@ static uint8_t parseVariable(const char *errorMessage, bool isConst) {
 }
 
 static void markInitialized() {
+    if (current->scopeDepth == 0) return;
     current->locals[current->localCount - 1].depth = current->scopeDepth;
 }
 
@@ -339,16 +379,36 @@ static void defineVariable(uint8_t global, bool isConst) {
     } else {
         emitBytes(OP_DEFINE_LET_GLOBAL, global);
     }
-
 }
 
-static void and_(bool canAss) { // 이 함수가 호출될 때 이미 좌측 표현식은 컴파일 된 상태
+static uint8_t argumentList() {
+    uint8_t argCount = 0;
+    if (!check(TOKEN_RIGHT_PAREN)) {
+        do {
+            expression();
+            if (argCount == 255) {
+                error("Can't have more than 255 arguments.");
+            }
+            argCount++;
+        } while (match(TOKEN_COMMA));
+    }
+    consume(TOKEN_RIGHT_PAREN, "Expect ')' after arguments.");
+    return argCount;
+}
+
+static void and_(bool canAss) {
+    // 이 함수가 호출될 때 이미 좌측 표현식은 컴파일 된 상태
     int endJump = emitJump(OP_JUMP_IF_FALSE);
 
     emitByte(OP_POP);
     parsePrecedence(PREC_AND);
 
     patchJump(endJump);
+}
+
+static void call(bool canAssign) {
+    uint8_t argCount = argumentList();
+    emitBytes(OP_CALL, argCount);
 }
 
 static void binary(bool canAssign) {
@@ -457,7 +517,6 @@ static void string(bool canAssign) {
         emitByte(OP_ADD);
         interpolation(canAssign);
     }
-
 }
 
 static void interpolation(bool canAssign) {
@@ -500,7 +559,8 @@ static void namedVariable(Token name, bool canAssign) {
         setOp = OP_SET_LOCAL;
     } else {
         arg = identifierConstant(&name);
-        if (canAssign && match(TOKEN_EQUAL)) { //전역 변수의 재할당 검증
+        if (canAssign && match(TOKEN_EQUAL)) {
+            //전역 변수의 재할당 검증
             expression();
             emitBytes(OP_SET_GLOBAL, (uint8_t) arg);
             return;
@@ -539,67 +599,69 @@ static void unary(bool canAssign) {
 }
 
 ParseRule rules[] = {
-        [TOKEN_LEFT_PAREN] = {grouping, NULL, PREC_NONE},
-        [TOKEN_RIGHT_PAREN] = {NULL, NULL, PREC_NONE},
-        [TOKEN_LEFT_BRACE] = {NULL, NULL, PREC_NONE},
-        [TOKEN_RIGHT_BRACE] = {NULL, NULL, PREC_NONE},
-        [TOKEN_COMMA] = {NULL, NULL, PREC_NONE},
-        [TOKEN_DOT] = {NULL, NULL, PREC_NONE},
-        [TOKEN_MINUS] = {unary, binary, PREC_TERM},
-        [TOKEN_PLUS] = {NULL, binary, PREC_TERM},
-        [TOKEN_SEMICOLON] ={NULL, NULL, PREC_NONE},
-        [TOKEN_SLASH] ={NULL, binary, PREC_FACTOR},
-        [TOKEN_STAR] = {NULL, binary, PREC_FACTOR},
-        [TOKEN_PERCENT] = {NULL, binary, PREC_FACTOR},
-        [TOKEN_QUESTION] = {NULL, conditional, PREC_CONDITIONAL}, // 삼항 연산자
-        [TOKEN_COLON] = {NULL, NULL, PREC_NONE}, // 콜론 연산자
+    [TOKEN_LEFT_PAREN] = {grouping, call, PREC_CALL},
+    [TOKEN_RIGHT_PAREN] = {NULL, NULL, PREC_NONE},
+    [TOKEN_LEFT_BRACE] = {NULL, NULL, PREC_NONE},
+    [TOKEN_RIGHT_BRACE] = {NULL, NULL, PREC_NONE},
+    [TOKEN_COMMA] = {NULL, NULL, PREC_NONE},
+    [TOKEN_DOT] = {NULL, NULL, PREC_NONE},
+    [TOKEN_MINUS] = {unary, binary, PREC_TERM},
+    [TOKEN_PLUS] = {NULL, binary, PREC_TERM},
+    [TOKEN_SEMICOLON] = {NULL, NULL, PREC_NONE},
+    [TOKEN_SLASH] = {NULL, binary, PREC_FACTOR},
+    [TOKEN_STAR] = {NULL, binary, PREC_FACTOR},
+    [TOKEN_PERCENT] = {NULL, binary, PREC_FACTOR},
+    [TOKEN_QUESTION] = {NULL, conditional, PREC_CONDITIONAL}, // 삼항 연산자
+    [TOKEN_COLON] = {NULL, NULL, PREC_NONE}, // 콜론 연산자
 
-        [TOKEN_INTERPOLATION] = {interpolation, NULL, PREC_NONE},
+    [TOKEN_INTERPOLATION] = {interpolation, NULL, PREC_NONE},
 
-        [TOKEN_BANG] ={unary, NULL, PREC_NONE}, // NOT
-        [TOKEN_BANG_EQUAL] ={NULL, binary, PREC_EQUALITY},
-        [TOKEN_EQUAL] ={NULL, NULL, PREC_NONE},
-        [TOKEN_EQUAL_EQUAL] ={NULL, binary, PREC_EQUALITY},
-        [TOKEN_GREATER] ={NULL, binary, PREC_COMPARISON},
-        [TOKEN_GREATER_EQUAL] ={NULL, binary, PREC_COMPARISON},
-        [TOKEN_LESS] ={NULL, binary, PREC_COMPARISON},
-        [TOKEN_LESS_EQUAL] ={NULL, binary, PREC_COMPARISON},
+    [TOKEN_BANG] = {unary, NULL, PREC_NONE}, // NOT
+    [TOKEN_BANG_EQUAL] = {NULL, binary, PREC_EQUALITY},
+    [TOKEN_EQUAL] = {NULL, NULL, PREC_NONE},
+    [TOKEN_EQUAL_EQUAL] = {NULL, binary, PREC_EQUALITY},
+    [TOKEN_GREATER] = {NULL, binary, PREC_COMPARISON},
+    [TOKEN_GREATER_EQUAL] = {NULL, binary, PREC_COMPARISON},
+    [TOKEN_LESS] = {NULL, binary, PREC_COMPARISON},
+    [TOKEN_LESS_EQUAL] = {NULL, binary, PREC_COMPARISON},
 
-        [TOKEN_IDENTIFIER] ={variable, NULL, PREC_NONE},
-        [TOKEN_STRING] ={string, NULL, PREC_NONE},
-        [TOKEN_NUMBER] = {number, NULL, PREC_NONE},
+    [TOKEN_IDENTIFIER] = {variable, NULL, PREC_NONE},
+    [TOKEN_STRING] = {string, NULL, PREC_NONE},
+    [TOKEN_NUMBER] = {number, NULL, PREC_NONE},
 
-        [TOKEN_AND] ={NULL, and_, PREC_AND},
-        [TOKEN_CLASS] ={NULL, NULL, PREC_NONE},
-        [TOKEN_ELSE] ={NULL, NULL, PREC_NONE},
-        [TOKEN_FALSE] ={literal, NULL, PREC_NONE},
-        [TOKEN_FOR] ={NULL, NULL, PREC_NONE},
-        [TOKEN_FUN] ={NULL, NULL, PREC_NONE},
-        [TOKEN_IF] ={NULL, NULL, PREC_NONE},
-        [TOKEN_NIL] ={literal, NULL, PREC_NONE},
-        [TOKEN_OR] ={NULL, or_, PREC_OR},
-        [TOKEN_PRINTLN] ={NULL, NULL, PREC_NONE},
-        [TOKEN_PRINT] ={NULL, NULL, PREC_NONE},
-        [TOKEN_RETURN] ={NULL, NULL, PREC_NONE},
-        [TOKEN_SUPER] ={NULL, NULL, PREC_NONE},
-        [TOKEN_THIS] ={NULL, NULL, PREC_NONE},
-        [TOKEN_TRUE] ={literal, NULL, PREC_NONE},
-        [TOKEN_CONST] = {NULL, NULL, PREC_NONE},
-        [TOKEN_LET] ={NULL, NULL, PREC_NONE},
-        [TOKEN_WHILE] ={NULL, NULL, PREC_NONE},
-        [TOKEN_SWITCH] = {NULL, NULL, PREC_NONE},
-        [TOKEN_CASE] = {NULL, NULL, PREC_NONE},
-        [TOKEN_DEFAULT] = {NULL, NULL, PREC_NONE},
-        [TOKEN_CONTINUE] = {NULL, NULL, PREC_NONE},
-        [TOKEN_BREAK] = {NULL, NULL, PREC_NONE},
-        [TOKEN_ERROR] ={NULL, NULL, PREC_NONE},
-        [TOKEN_EOF] ={NULL, NULL, PREC_NONE},
+    [TOKEN_AND] = {NULL, and_, PREC_AND},
+    [TOKEN_CLASS] = {NULL, NULL, PREC_NONE},
+    [TOKEN_ELSE] = {NULL, NULL, PREC_NONE},
+    [TOKEN_FALSE] = {literal, NULL, PREC_NONE},
+    [TOKEN_FOR] = {NULL, NULL, PREC_NONE},
+    [TOKEN_FUN] = {NULL, NULL, PREC_NONE},
+    [TOKEN_IF] = {NULL, NULL, PREC_NONE},
+    [TOKEN_NIL] = {literal, NULL, PREC_NONE},
+    [TOKEN_OR] = {NULL, or_, PREC_OR},
+    [TOKEN_PRINTLN] = {NULL, NULL, PREC_NONE},
+    [TOKEN_PRINT] = {NULL, NULL, PREC_NONE},
+    [TOKEN_RETURN] = {NULL, NULL, PREC_NONE},
+    [TOKEN_SUPER] = {NULL, NULL, PREC_NONE},
+    [TOKEN_THIS] = {NULL, NULL, PREC_NONE},
+    [TOKEN_TRUE] = {literal, NULL, PREC_NONE},
+    [TOKEN_CONST] = {NULL, NULL, PREC_NONE},
+    [TOKEN_LET] = {NULL, NULL, PREC_NONE},
+    [TOKEN_WHILE] = {NULL, NULL, PREC_NONE},
+    [TOKEN_SWITCH] = {NULL, NULL, PREC_NONE},
+    [TOKEN_CASE] = {NULL, NULL, PREC_NONE},
+    [TOKEN_DEFAULT] = {NULL, NULL, PREC_NONE},
+    [TOKEN_CONTINUE] = {NULL, NULL, PREC_NONE},
+    [TOKEN_BREAK] = {NULL, NULL, PREC_NONE},
+    [TOKEN_ERROR] = {NULL, NULL, PREC_NONE},
+    [TOKEN_EOF] = {NULL, NULL, PREC_NONE},
 };
 
-static void parsePrecedence(Precedence precedence) { //Pratt Parser
+static void parsePrecedence(Precedence precedence) {
+    //Pratt Parser
     advance();
     ParseFn preFixRule = getRule(parser.previous.type)->prefix;
-    if (preFixRule == NULL) { //전위 파서가 없다면 구문 에러가 난 것으로 처리
+    if (preFixRule == NULL) {
+        //전위 파서가 없다면 구문 에러가 난 것으로 처리
         error("Expect expression.");
         return;
     }
@@ -612,7 +674,6 @@ static void parsePrecedence(Precedence precedence) { //Pratt Parser
         advance();
         ParseFn infixRule = getRule(parser.previous.type)->infix;
         infixRule(canAssgin);
-
     }
     if (canAssgin && match(TOKEN_EQUAL))
         error("Invalid assignment target.");
@@ -622,16 +683,52 @@ static ParseRule *getRule(TokenType type) {
     return &rules[type];
 }
 
-static void expression() { // table driven parser
+static void expression() {
+    // table driven parser
     parsePrecedence(PREC_ASSIGNMENT);
 }
 
 static void block() {
-    while (!check(TOKEN_RIGHT_BRACE) && !check(TOKEN_EOF)) { //사용자가 }를 까먹을 수도 있으므로 eof 체크
+    while (!check(TOKEN_RIGHT_BRACE) && !check(TOKEN_EOF)) {
+        //사용자가 }를 까먹을 수도 있으므로 eof 체크
         declaration();
     }
     consume(TOKEN_RIGHT_BRACE, "Expect '}' after block.");
 }
+
+static void function(FunctionType type) {
+    Compiler compiler;
+    initCompiler(&compiler, type);
+    beginScope();
+
+    consume(TOKEN_LEFT_PAREN, "Expect '(' after function name.");
+
+    if (!check(TOKEN_RIGHT_PAREN)) {
+        do {
+            current->function->arity++;
+            if (current->function->arity > 255) {
+                errorAtCurrent("Can't have more than 255 parameters.");
+            }
+            uint8_t constant = parseVariable("Expect parameter name.", true);
+            defineVariable(constant, true);
+        } while (match(TOKEN_COMMA));
+    }
+
+    consume(TOKEN_RIGHT_PAREN, "Expect ')' after parameters.");
+    consume(TOKEN_LEFT_BRACE, "Expect '{' before function body.");
+    block();
+
+    ObjFunction *function = endCompiler();
+    emitBytes(OP_CONSTANT, makeConstant(OBJ_VAL(function)));
+}
+
+static void funDeclaration() {
+    uint8_t global = parseVariable("Expect function name.", true);
+    markInitialized();
+    function(TYPE_FUNCTION);
+    defineVariable(global, true);
+}
+
 
 static void varDeclaration(bool isConst) {
     //변수 이름에 대한 식별자 토큰 소비, 렉심을 청크의 상수 테이블에 문자열로 추가, 해당 상수 테이블의 인덱스를 return
@@ -661,7 +758,8 @@ static void forStatement() {
     consume(TOKEN_LEFT_PAREN, "Expect '(' after 'for'.");
     if (match(TOKEN_SEMICOLON)) {
         //no initializer
-    } else if (match(TOKEN_LET)) { // only let can be re-assigned
+    } else if (match(TOKEN_LET)) {
+        // only let can be re-assigned
         varDeclaration(false);
     } else if (match(TOKEN_CONST)) {
         varDeclaration(true);
@@ -692,12 +790,12 @@ static void forStatement() {
         patchJump(bodyJump);
     }
     Loop loop = {
-            .enclosing = currentLoop,
-            .continueOffset = loopStart,
-            .unpatchedBreakJumps =0,
+        .enclosing = currentLoop,
+        .continueOffset = loopStart,
+        .unpatchedBreakJumps = 0,
     };
     currentLoop = &loop;
-    statement();  //increment
+    statement(); //increment
     emitLoop(loopStart);
 
     int breakStatementsToBePatched = loop.unpatchedBreakJumps;
@@ -746,6 +844,20 @@ static void printStatement() {
     emitByte(OP_PRINT);
 }
 
+static void returnStatement() {
+    if (current->type == TYPE_SCRIPT) {
+        error("Can't return from top-level code.");
+    }
+
+    if (match(TOKEN_SEMICOLON)) {
+        emitReturn(); //return nil
+    } else {
+        expression();
+        consume(TOKEN_SEMICOLON, "Expect ';' after return value.");
+        emitByte(OP_RETURN);
+    }
+}
+
 static void whileStatement() {
     int loopStart = currentChunk()->count;
     consume(TOKEN_LEFT_PAREN, "Expect '(' after 'while'.");
@@ -754,9 +866,9 @@ static void whileStatement() {
 
     int loopExitJump = emitJump(OP_JUMP_IF_FALSE);
     Loop loop = {
-            .enclosing = currentLoop,
-            .continueOffset = loopStart,
-            .unpatchedBreakJumps =0,
+        .enclosing = currentLoop,
+        .continueOffset = loopStart,
+        .unpatchedBreakJumps = 0,
     };
     currentLoop = &loop;
     statement();
@@ -828,7 +940,8 @@ static void continueStatement() {
     emitLoop(currentLoop->continueOffset);
 }
 
-static void breakStatement() { //breakStatement -> "break" ";" ;
+static void breakStatement() {
+    //breakStatement -> "break" ";" ;
     consume(TOKEN_SEMICOLON, "Expect ';' after 'break'.");
     if (currentLoop == NULL) {
         error("Can't use 'break' outside of a loop.");
@@ -839,14 +952,14 @@ static void breakStatement() { //breakStatement -> "break" ";" ;
     current->unpatchedBreaks += 1;
 }
 
-
 static void synchronize() {
     parser.panicMode = false;
 
     while (parser.current.type != TOKEN_EOF) {
         if (parser.previous.type == TOKEN_SEMICOLON)
             return;
-        switch (parser.current.type) { //문장 경계는 세미콜론이나 뒤에 문장으로 시작하는 토큰이 있는지 여부로 알 수 있음
+        switch (parser.current.type) {
+            //문장 경계는 세미콜론이나 뒤에 문장으로 시작하는 토큰이 있는지 여부로 알 수 있음
             case TOKEN_CLASS:
             case TOKEN_FUN:
             case TOKEN_LET:
@@ -858,13 +971,18 @@ static void synchronize() {
                 return;
             default:
                 //none
+
+
+
         }
         advance();
     }
 }
 
 static void declaration() {
-    if (match(TOKEN_CONST)) {
+    if (match(TOKEN_FUN)) {
+        funDeclaration();
+    } else if (match(TOKEN_CONST)) {
         varDeclaration(true);
     } else if (match(TOKEN_LET)) {
         varDeclaration(false);
@@ -883,38 +1001,38 @@ static void statement() {
         forStatement();
     } else if (match(TOKEN_IF)) {
         ifStatement();
+    } else if (match(TOKEN_RETURN)) {
+        returnStatement();
     } else if (match(TOKEN_WHILE)) {
         whileStatement();
+    } else if (match(TOKEN_LEFT_BRACE)) {
+        beginScope();
+        block();
+        endScope();
     } else if (match(TOKEN_SWITCH)) {
         switchStatement();
     } else if (match(TOKEN_CONTINUE)) {
         continueStatement();
     } else if (match(TOKEN_BREAK)) {
         breakStatement();
-    } else if (match(TOKEN_LEFT_BRACE)) {
-        beginScope();
-        block();
-        endScope();
-    } else { //print 키워드가 안 보이면 표현문이다
+    } else {
+        //print 키워드가 안 보이면 표현문이다
         expressionStatement();
     }
 }
 
-bool compile(const char *source, Chunk *chunk) {
+ObjFunction *compile(const char *source) {
     initScanner(source);
     Compiler compiler;
-    initCompiler(&compiler);
-    compilingChunk = chunk; // 바이트 코드를 쓰기 전에 새로운 모듈 변수 초기화
-
+    initCompiler(&compiler, TYPE_SCRIPT);
     parser.hadError = false;
     parser.panicMode = false;
 
     advance();
-    while (!match(TOKEN_EOF)) { //eof를 못 찾아서 무한루프
+    while (!match(TOKEN_EOF)) {
+        //eof를 못 찾아서 무한루프
         declaration();
     }
-    endCompiler();
-
-    return !parser.hadError;
-
+    ObjFunction *function = endCompiler();
+    return parser.hadError ? NULL : function;
 }
