@@ -10,7 +10,7 @@
 #define STACK_MAX (FRAMES_MAX * UINT8_COUNT)
 
 typedef struct { // framePointer, basePointer
-    ObjFunction* function;
+    ObjClosure* closure;
     uint8_t* ip;
     Value* slots; //함수가 사용할 수 있는 첫번째 슬롯에 위치한 vm의 스택을 가르킨다.
 }CallFrame;
@@ -24,6 +24,8 @@ typedef struct {
     Value *stackTop;
     Table globals;
     Table strings;
+    ObjUpValue* openUpValues;
+
     Obj *objects;
 } VM;
 

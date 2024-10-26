@@ -47,19 +47,26 @@ typedef struct {
     Token name; //변수 이름
     int depth;
     bool isConst; //const  추가
+    bool isCaptured;
 } Local;
+
+typedef struct {
+    uint8_t index;
+    bool isLocal;
+} UpValue;
 
 typedef enum {
     TYPE_FUNCTION,
     TYPE_SCRIPT,
 } FunctionType;
 
-typedef struct Compiler{
+typedef struct Compiler {
     struct Compiler *enclosing;
     ObjFunction *function;
     FunctionType type;
     Local locals[UINT8_COUNT];
     int localCount; //스코프에 있는 지역 변수의 개수(사용중인 배열 슬롯의 개수) 추적
+    UpValue upValues[UINT8_COUNT];
     int scopeDepth; //'컴파일중인' 현재 코드의 비트를 둘러싼 블록의 개수
     int unpatchedBreaks;
 } Compiler;
@@ -247,6 +254,7 @@ static void initCompiler(Compiler *compiler, FunctionType type) {
 
     Local *local = &current->locals[current->localCount++];
     local->depth = 0;
+    local->isCaptured = false;
     local->name.start = "";
     local->name.length = 0;
 }
@@ -278,7 +286,11 @@ static void endScope() {
 
     while (current->localCount > 0 &&
            current->locals[current->localCount - 1].depth > current->scopeDepth) {
-        emitByte(OP_POP); //지역변수가 스코프를 벗어나면 해당 슬롯은 더 이상 필요가 없다
+        if (current->locals[current->localCount - 1].isCaptured) {
+            emitByte(OP_CLOSE_UPVALUE);
+        } else {
+            emitByte(OP_POP); //지역변수가 스코프를 벗어나면 해당 슬롯은 더 이상 필요가 없다
+        }
         current->localCount--;
     }
 }
@@ -316,6 +328,40 @@ static int resolveLocal(Compiler *compiler, Token *name) {
     return -1; //전역변수임을 나타냄
 }
 
+static int addUpValue(Compiler *compiler, uint8_t index, bool isLocal) {
+    int upValueCount = compiler->function->upValueCount;
+    for (int i = 0; i < upValueCount; i++) {
+        UpValue *upValue = &compiler->upValues[i];
+        if (upValue->index == index && upValue->isLocal == isLocal) {
+            return i;
+        }
+    }
+    if (upValueCount == UINT8_COUNT) {
+        error("Too many closure variables in function.");
+        return 0;
+    }
+
+    compiler->upValues[upValueCount].isLocal = isLocal;
+    compiler->upValues[upValueCount].index = index;
+    return compiler->function->upValueCount++;
+}
+
+static int resolveUpValue(Compiler *compiler, Token *name) {
+    if (compiler->enclosing == NULL) return -1;
+
+    int local = resolveLocal(compiler->enclosing, name);
+    if (local != -1) { //상위 스코프 변수 인식
+        compiler->enclosing->locals[local].isCaptured = true;
+        return addUpValue(compiler, (uint8_t) local, true);
+    }
+
+    int upValue = resolveUpValue(compiler->enclosing, name);
+    if (upValue != -1) {
+        return addUpValue(compiler, (uint8_t) upValue, false);
+    }
+
+    return -1;
+}
 
 static void addLocal(Token name, bool isConst) {
     if (current->localCount == UINT8_COUNT) {
@@ -557,6 +603,9 @@ static void namedVariable(Token name, bool canAssign) {
         }
         getOp = OP_GET_LOCAL;
         setOp = OP_SET_LOCAL;
+    } else if ((arg = resolveUpValue(current, &name)) != -1) {
+        getOp = OP_GET_UPVALUE;
+        setOp = OP_SET_UPVALUE;
     } else {
         arg = identifierConstant(&name);
         if (canAssign && match(TOKEN_EQUAL)) {
@@ -719,7 +768,12 @@ static void function(FunctionType type) {
     block();
 
     ObjFunction *function = endCompiler();
-    emitBytes(OP_CONSTANT, makeConstant(OBJ_VAL(function)));
+    emitBytes(OP_CLOSURE, makeConstant(OBJ_VAL(function)));
+
+    for (int i = 0; i < function->upValueCount; i++) {
+        emitByte(compiler.upValues[i].isLocal ? 1 : 0);
+        emitByte(compiler.upValues[i].index);
+    }
 }
 
 static void funDeclaration() {
